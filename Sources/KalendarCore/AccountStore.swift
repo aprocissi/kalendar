@@ -42,7 +42,6 @@ public final class AccountStore {
     public static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config)
     }()
 

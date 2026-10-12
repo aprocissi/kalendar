@@ -13,6 +13,9 @@ struct SelfTest {
     let engine: SyncEngine
     let writer: EventWriter
     private var lines: [String] = []
+    /// Titles of everything the self-test creates; cleanUpLeftovers() deletes whatever has them.
+    private static let eventPrefix = "Kalendar self-test "
+    private static let taskPrefix = "Kalendar self-test task "
     private var failures = 0
 
     init(accounts: AccountStore, cache: CalendarCache, engine: SyncEngine, writer: EventWriter) {
@@ -55,12 +58,16 @@ struct SelfTest {
 
     // MARK: Events (§5.4, §6, §8.2) on the "test" calendar
 
+    private var testCalendars: [CalendarInfo] {
+        (try? cache.calendars().filter { $0.summary == "test" && $0.isWritable }) ?? []
+    }
+
     private mutating func events() async {
-        guard let calendar = try? cache.calendars().first(where: { $0.summary == "test" && $0.isWritable }) else {
+        guard let calendar = testCalendars.first else {
             check(false, "a writable calendar named \"test\" exists")
             return
         }
-        let title = "Kalendar self-test \(Int(Date().timeIntervalSince1970))"
+        let title = Self.eventPrefix + "\(Int(Date().timeIntervalSince1970))"
         var parsed = NLParser(defaultDuration: 1800).parse("\(title) tomorrow 7am")
         parsed.title = title
         writer.insert(EventDraft(parsed: parsed, account: calendar.account, calendarId: calendar.id))
@@ -99,14 +106,7 @@ struct SelfTest {
         note("undo: PATCH status=confirmed on the deleted event → HTTP \(status), status \(g["status"] as? String ?? "-")")
         let copy = try? cache.events(account: calendar.account, calendarId: calendar.id).first { $0.summary == edited.summary }
         check(copy != nil, "undo: the event is back in the cache" + (restoredInPlace ? " (restored in place)" : " (as an inserted copy)"))
-
-        // clean up whatever undo produced
-        if let copy {
-            writer.delete(copy, scope: .occurrence)
-            await writer.flush()
-            (status, g) = await googleEvent(calendar.account, calendar.id, copy.id)
-            check(status != 200 || g["status"] as? String == "cancelled", "cleanup: test event deleted")
-        }
+        // cleanUpLeftovers() deletes what undo restored
     }
 
     // MARK: Tasks (§7.3, §10)
@@ -117,7 +117,7 @@ struct SelfTest {
             check(false, "a task list exists")
             return
         }
-        let title = "Kalendar self-test task \(Int(Date().timeIntervalSince1970))"
+        let title = Self.taskPrefix + "\(Int(Date().timeIntervalSince1970))"
         let due = Calendar.current.startOfDay(for: Date())
         writer.insertTask(title: title, notes: "made by -selfTest", due: due, account: list.account, listId: list.id)
         await writer.flush()
@@ -158,32 +158,30 @@ struct SelfTest {
         }
 
         writer.clearError()
-        note("delete: \(task.account) list \(task.listId) id \(task.id); queued \((try? cache.pendingWriteCount()) ?? -1)")
         writer.deleteTask(task)
         await writer.flush()
-        note("delete: write error \(writer.error ?? "none"); queued \((try? cache.pendingWriteCount()) ?? -1)")
         (status, g) = await googleTask(task.account, task.listId, task.id)
-        note("delete: Google now \(status) deleted=\(g["deleted"] as? Bool ?? false) status=\(g["status"] as? String ?? "-")")
-        check(status == 404 || g["deleted"] as? Bool == true, "task delete: Google deleted it (HTTP \(status))")
+        check(status == 404 || g["deleted"] as? Bool == true,
+              "task delete: Google deleted it (HTTP \(status), write error \(writer.error ?? "none"))")
         check((try? cache.allTasks().contains { $0.title == title }) == false, "task delete: gone from the cache")
     }
 
-    /// Deletes self-test events and tasks that a failed step of this or an earlier run left behind.
+    /// Deletes the self-test events and tasks still cached: the event undo restored, and anything a
+    /// failed step of this or an earlier run left behind.
     private mutating func cleanUpLeftovers() async {
-        let events = (try? cache.calendars().filter { $0.summary == "test" && $0.isWritable }
-            .flatMap { try cache.events(account: $0.account, calendarId: $0.id) }
-            .filter { $0.summary.hasPrefix("Kalendar self-test ") }) ?? []
-        let tasks = (try? cache.allTasks().filter { $0.title.hasPrefix("Kalendar self-test task") }) ?? []
+        let events = (try? testCalendars.flatMap { try cache.events(account: $0.account, calendarId: $0.id) }
+            .filter { $0.summary.hasPrefix(Self.eventPrefix) }) ?? []
+        let tasks = (try? cache.allTasks().filter { $0.title.hasPrefix(Self.taskPrefix) }) ?? []
         for old in events { writer.delete(old, scope: .occurrence) }
         for old in tasks { writer.deleteTask(old) }
         await writer.flush()
         for old in events {
             let (s, j) = await googleEvent(old.account, old.calendarId, old.id)
-            note("cleanup: leftover \"\(old.summary)\" → HTTP \(s) status=\(j["status"] as? String ?? "-")")
+            check(s != 200 || j["status"] as? String == "cancelled", "cleanup: deleted \"\(old.summary)\" (HTTP \(s))")
         }
         for old in tasks {
             let (s, j) = await googleTask(old.account, old.listId, old.id)
-            note("cleanup: leftover \"\(old.title)\" → HTTP \(s) deleted=\(j["deleted"] as? Bool ?? false)")
+            check(s == 404 || j["deleted"] as? Bool == true, "cleanup: deleted \"\(old.title)\" (HTTP \(s))")
         }
     }
 
@@ -191,14 +189,14 @@ struct SelfTest {
 
     private mutating func notification() async {
         let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
         // provisional authorization delivers quietly to Notification Center, which is what this checks
-        let allowed = await [.authorized, .provisional].contains(center.notificationSettings().authorizationStatus)
+        let allowed = [.authorized, .provisional].contains(settings.authorizationStatus)
         check(allowed, "notifications are authorized")
         guard allowed else { return }
         let start = Date().addingTimeInterval(600)
-        let event = EventInstance(placeholder: "self-test", draft: EventDraft(
+        var e = EventInstance(placeholder: "self-test", draft: EventDraft(
             parsed: NLParser().parse("Kalendar self-test alert"), account: "", calendarId: "test"))
-        var e = event
         e.summary = "Kalendar self-test alert"
         e.start = start
         e.end = start.addingTimeInterval(1800)
@@ -219,7 +217,6 @@ struct SelfTest {
             delivered = await center.deliveredNotifications().first { $0.request.identifier == id }
         }
         let pending = await center.pendingNotificationRequests().contains { $0.identifier == id }
-        let settings = await center.notificationSettings()
         note("alert settings: alert \(settings.alertSetting.rawValue), style \(settings.alertStyle.rawValue), "
              + "notification center \(settings.notificationCenterSetting.rawValue); still pending: \(pending)")
         check(delivered != nil, "alert delivered: \"\(content.title)\" / \"\(content.body)\"")
