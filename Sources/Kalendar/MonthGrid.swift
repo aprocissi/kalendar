@@ -6,7 +6,7 @@ struct MonthGrid: View {
     /// Double-clicking a day starts a new entry on it (§4.2).
     var onDoubleClick: (Date) -> Void = { _ in }
 
-    private var calendar: Calendar { .current }
+    private var calendar: Calendar { model.calendar }
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
 
     var body: some View {
@@ -15,7 +15,7 @@ struct MonthGrid: View {
             HStack(spacing: 0) {
                 ForEach(weekdaySymbols.indices, id: \.self) { i in
                     Text(weekdaySymbols[i])
-                        .font(.system(size: 11, weight: .medium))
+                        .uiFont(11, weight: .medium)
                         .foregroundStyle(isTodayColumn(i) ? Theme.accent : Theme.muted)
                         .frame(maxWidth: .infinity)
                 }
@@ -52,7 +52,7 @@ private struct DayCell: View {
     let model: AgendaModel
     let onDoubleClick: (Date) -> Void
 
-    private var calendar: Calendar { .current }
+    private var calendar: Calendar { model.calendar }
 
     var body: some View {
         let isToday = calendar.isDate(day, inSameDayAs: model.today)
@@ -61,7 +61,7 @@ private struct DayCell: View {
         let marks = model.marks[day] ?? DayMarks()
         VStack(spacing: 2) {
             Text("\(calendar.component(.day, from: day))")
-                .font(.system(size: 13, weight: isToday ? .semibold : .regular))
+                .uiFont(13, weight: isToday ? .semibold : .regular)
                 .foregroundStyle(isToday ? .white : inMonth ? Theme.text : Theme.muted)
                 .frame(width: 24, height: 24)
                 .background {
@@ -75,11 +75,8 @@ private struct DayCell: View {
                 ForEach(Array(marks.colors.prefix(4).enumerated()), id: \.offset) { _, color in
                     Circle().fill(color).frame(width: 4, height: 4)
                 }
-                if marks.declined {
-                    Circle().fill(Theme.bad).frame(width: 4, height: 4)
-                }
                 if marks.tasks {
-                    Image(systemName: "checkmark").font(.system(size: 6, weight: .bold)).foregroundStyle(Theme.muted)
+                    Image(systemName: "checkmark").uiFont(6, weight: .bold).foregroundStyle(Theme.muted)
                 }
             }
             .frame(height: 4)
@@ -91,7 +88,8 @@ private struct DayCell: View {
         .simultaneousGesture(TapGesture().onEnded { model.select(day) })
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(isToday: isToday, count: marks.colors.count) + (marks.tasks ? ", tasks due" : ""))
-        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: "New item on this day") { onDoubleClick(day) }
     }
 
     private func accessibilityLabel(isToday: Bool, count: Int) -> String {

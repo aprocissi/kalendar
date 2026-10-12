@@ -10,7 +10,11 @@ import SwiftUI
 
 @MainActor
 final class PopoverController: NSObject, NSPopoverDelegate {
-    static let size = NSSize(width: 320, height: 600)
+    /// The Mini Window grows with the text size (§12).
+    static func size(scale: CGFloat) -> NSSize {
+        NSSize(width: (320 * scale).rounded(), height: (600 * scale).rounded())
+    }
+    private static var size: NSSize { size(scale: Preferences.shared.textSize.scale) }
 
     private let popover = NSPopover()
     private var detail: NSPopover?
@@ -32,7 +36,9 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             self?.showChild(relativeTo: view, content: content, width: width, edge: edge, shouldClose: shouldClose) ?? false
         }
         model.contentView = { [weak self] in self?.popover.contentViewController?.view }
-        popover.contentViewController = NSHostingController(rootView: PopoverRoot(model: model))
+        model.childShown = { [weak self] in self?.detail != nil }
+        model.closeChild = { [weak self] in self?.closeChild() ?? true }
+        popover.contentViewController = NSHostingController(rootView: TextScaled(PopoverRoot(model: model)))
     }
 
     var isShown: Bool { popover.isShown }
@@ -47,6 +53,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         anchor = button
         model.willOpen()
+        popover.contentSize = Self.size
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         Self.paintFrame(of: popover)
         popover.contentViewController?.view.window?.makeKey()
@@ -84,7 +91,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let child = NSPopover()
         child.behavior = .transient
         child.delegate = self
-        child.contentViewController = NSHostingController(rootView: content.frame(width: width))
+        child.contentViewController = NSHostingController(rootView: TextScaled(content.frame(width: width)))
         // AppKit flips to the opposite edge when there is no room
         child.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
         Self.paintFrame(of: child)
@@ -148,6 +155,27 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     }
 }
 
+extension SyncEngine {
+    /// The calendar visibility toggles (§4.4, §12): a failed write is logged; the engine reverts it.
+    func setVisible(_ selected: Bool, calendar: CalendarInfo) async {
+        do {
+            try await setSelected(selected, calendar: calendar)
+        } catch {
+            Log.sync.error("calendar visibility write failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// Applies the Text size setting (§12) to a hosted view tree, following changes.
+struct TextScaled<Content: View>: View {
+    let content: Content
+    init(_ content: Content) { self.content = content }
+
+    var body: some View {
+        content.environment(\.textScale, Preferences.shared.textSize.scale)
+    }
+}
+
 /// State and callbacks the SwiftUI content needs from the AppKit shell.
 @MainActor
 @Observable
@@ -167,6 +195,9 @@ final class PopoverModel {
     /// Shows a popover beside the Mini Window; false when the open one refused to close.
     @ObservationIgnored var showChild: (NSView, AnyView, CGFloat, NSRectEdge, (() -> Bool)?) -> Bool = { _, _, _, _, _ in false }
     @ObservationIgnored var contentView: () -> NSView? = { nil }
+    @ObservationIgnored var childShown: () -> Bool = { false }
+    /// Closes the detail popover, saving it; false when the user cancelled.
+    @ObservationIgnored var closeChild: () -> Bool = { true }
 
     init(accounts: AccountStore, agenda: AgendaModel, writer: EventWriter, signIn: @escaping (String?) -> Void,
          showSettings: @escaping () -> Void, refresh: @escaping () -> Void) {
@@ -224,7 +255,8 @@ final class PopoverModel {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             // unless the user started something else in the meantime
-            guard let self, input.isEmpty, !agenda.searchMode, agenda.selectedEvent == nil else { return }
+            guard let self, Preferences.shared.goToTodayAfterAdding, input.isEmpty, !agenda.searchMode,
+                  agenda.selectedEvent == nil else { return }
             agenda.resetToToday()
         }
     }
@@ -283,10 +315,69 @@ final class PopoverModel {
 
     // MARK: Event actions (§7.1, §8)
 
-    /// The selected event in the agenda list, if it is still cached.
-    var selectedEvent: EventInstance? {
+    /// A row of the list the keyboard moves through.
+    enum ListItem {
+        case event(EventInstance), task(TaskItem)
+        var key: String {
+            switch self {
+            case .event(let e): e.key
+            case .task(let t): t.key
+            }
+        }
+    }
+
+    /// The rows on screen, in order: search results, the Tasks view, or the agenda. An event that
+    /// spans several days is listed under each, so ↑ ↓ use `listItems`, which keeps its first.
+    private var rows: some Sequence<ListItem> {
+        if agenda.searchMode {
+            return AnySequence(agenda.searchResults.lazy.flatMap { ($0.allDay + $0.timed).map(ListItem.event) })
+        }
+        if agenda.showsTasks { return AnySequence(agenda.taskRows.lazy.map { .task($0.task) }) }
+        return AnySequence(agenda.sections.lazy.flatMap { s in
+            s.allDay.map(ListItem.event) + s.tasks.map(ListItem.task) + s.timed.map(ListItem.event)
+        })
+    }
+
+    /// Each row once, so ↓ can move past a multi-day event.
+    var listItems: [ListItem] {
+        var seen = Set<String>()
+        return rows.filter { seen.insert($0.key).inserted }
+    }
+
+    /// The selected row, if it is still listed; stops at the first match.
+    private var selectedItem: ListItem? {
         guard let key = agenda.selectedEvent else { return nil }
-        return agenda.sections.lazy.flatMap { $0.allDay + $0.timed }.first { $0.key == key }
+        return rows.first { $0.key == key }
+    }
+
+    func moveSelection(by delta: Int) {
+        let items = listItems
+        guard !items.isEmpty else { return }
+        // with nothing selected, ↓ starts at the first row and ↑ at the last
+        let index = items.firstIndex { $0.key == agenda.selectedEvent }.map { $0 + delta } ?? (delta > 0 ? 0 : items.count - 1)
+        agenda.selectedEvent = items[min(max(index, 0), items.count - 1)].key
+    }
+
+    /// Enter, ⌘E: the selection's detail popover beside the Mini Window.
+    func openSelection() {
+        switch selectedItem {
+        case .event(let e): openEvent(e, anchor: nil)
+        case .task(let t): openTask(t, anchor: nil)
+        case nil: break
+        }
+    }
+
+    /// ⌘E / ⌘I (§11): shows or hides the selection's detail popover.
+    func toggleDetail() {
+        if childShown() { _ = closeChild() } else { openSelection() }
+    }
+
+    /// ⌘N (§11): the input, ready for a new event.
+    func startNewEntry() {
+        if agenda.searchMode { toggleSearch() }
+        agenda.showsTasks = false
+        agenda.selectedEvent = nil
+        focusInput()
     }
 
     /// Go to Previous / Next Occurrence (§7.1): selects that occurrence's day and the occurrence.
@@ -307,13 +398,6 @@ final class PopoverModel {
         NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
     }
 
-    /// The selected task, in the agenda or the Tasks view.
-    var selectedTask: TaskItem? {
-        guard let key = agenda.selectedEvent else { return nil }
-        return agenda.sections.lazy.flatMap(\.tasks).first { $0.key == key }
-            ?? agenda.taskRows.lazy.map(\.task).first { $0.key == key }
-    }
-
     func deleteTask(_ task: TaskItem) {
         writer.deleteTask(task)
         agenda.selectedEvent = nil
@@ -321,10 +405,14 @@ final class PopoverModel {
 
     /// ⌫ and Delete Item: the selected event or task.
     func deleteSelection() {
-        if let event = selectedEvent { delete(event) } else if let task = selectedTask { deleteTask(task) }
+        switch selectedItem {
+        case .event(let e): delete(e)
+        case .task(let t): deleteTask(t)
+        case nil: break
+        }
     }
 
-    var hasSelection: Bool { selectedEvent != nil || selectedTask != nil }
+    var hasSelection: Bool { selectedItem != nil }
 
     /// Duplicate as Task (§7.1): due on the event's day, in the event account's first list.
     func duplicateAsTask(_ event: EventInstance) {
@@ -365,13 +453,7 @@ final class PopoverModel {
     }
 
     func setSelected(_ selected: Bool, calendar: CalendarInfo) {
-        Task {
-            do {
-                try await agenda.engine.setSelected(selected, calendar: calendar)
-            } catch {
-                Log.sync.error("calendar visibility write failed: \(error.localizedDescription)")
-            }
-        }
+        Task { await agenda.engine.setVisible(selected, calendar: calendar) }
     }
 
     /// Returns true when the key was handled (§11).
@@ -386,12 +468,22 @@ final class PopoverModel {
             default: break
             }
         }
-        if !input.isEmpty, !agenda.searchMode, flags.isEmpty, event.keyCode == 36 || event.keyCode == 76 {
+        let enter = event.keyCode == 36 || event.keyCode == 76
+        if !input.isEmpty, !agenda.searchMode, flags.isEmpty, enter {
             addNewItem()
             return true
         }
+        // the list's selection (§11): ↑ ↓ move it, Enter opens it; in search once ⌘↓ chose a result
+        let listHasKeys = (input.isEmpty && !agenda.searchMode) || (agenda.searchMode && agenda.selectedEvent != nil)
+        if listHasKeys, flags.isEmpty {
+            if event.keyCode == 126 { moveSelection(by: -1); return true }
+            if event.keyCode == 125 { moveSelection(by: 1); return true }
+            if enter, hasSelection { openSelection(); return true }
+        }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         switch (flags, key) {
+        case ([.command], "n"): startNewEntry(); return true
+        case ([.command], "e"), ([.command], "i"): toggleDetail(); return true
         case ([.command], "f"): if !agenda.searchMode { toggleSearch() }; return true
         case ([.command], "t"): agenda.resetToToday(); return true
         case ([.command, .shift], "t"): goToDate(); return true
@@ -401,6 +493,11 @@ final class PopoverModel {
         case ([.command], "3"): showTasks(false); return true
         default: break
         }
+        // ⌘↓: from the search field to the first result (§11)
+        if agenda.searchMode, flags == [.command], event.keyCode == 125 {
+            agenda.selectedEvent = listItems.first?.key
+            return true
+        }
         // ⌫ / ⌘⌫ delete the selected event (§4.3)
         if input.isEmpty, !agenda.searchMode, event.keyCode == 51, flags.isEmpty || flags == [.command],
            hasSelection {
@@ -408,7 +505,7 @@ final class PopoverModel {
             return true
         }
         guard input.isEmpty, !agenda.searchMode else { return false }
-        switch (flags.subtracting(.function), event.keyCode) {
+        switch (flags, event.keyCode) {
         case ([], 123): agenda.moveMonth(by: -1)         // ←
         case ([], 124): agenda.moveMonth(by: 1)          // →
         case ([.shift], 123): agenda.moveDay(by: -1)     // ⇧←

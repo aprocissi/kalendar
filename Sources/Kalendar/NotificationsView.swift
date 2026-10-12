@@ -11,7 +11,7 @@ struct NotificationsView: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                Text("Notifications").font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.text)
+                Text("Notifications").uiFont(13, weight: .bold).foregroundStyle(Theme.text)
                 HStack {
                     Spacer()
                     Menu {
@@ -69,15 +69,15 @@ private struct InvitationRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 Text(String((organizer ?? event.summary).prefix(1)).uppercased())
-                    .font(.system(size: 15, weight: .semibold))
+                    .uiFont(15, weight: .semibold)
                     .foregroundStyle(Theme.text)
                     .frame(width: 34, height: 34)
                     .background(Theme.card, in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(event.summary).font(.system(size: 15)).foregroundStyle(Theme.text).lineLimit(2)
-                    if let organizer { Text("From: \(organizer)").font(.system(size: 12)).foregroundStyle(Theme.muted) }
+                    Text(event.summary).uiFont(15).foregroundStyle(Theme.text).lineLimit(2)
+                    if let organizer { Text("From: \(organizer)").uiFont(12).foregroundStyle(Theme.muted) }
                     Text(event.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute()))
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        .uiFont(12).foregroundStyle(Theme.muted)
                 }
                 Spacer(minLength: 0)
             }

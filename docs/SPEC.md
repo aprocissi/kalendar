@@ -95,7 +95,7 @@ Behaviors:
 - Title "Sep **2026**" — month in `text`, year in `accent` (§14). Invitation badge (`bad` circle with count of pending invites) next to the title; hidden when zero. Clicking it opens the **Notifications popover** (§6.2). `‹ ›` step months.
 - 7 columns SUN…SAT, header for the current weekday in `accent`. Six rows always; leading/trailing days from adjacent months dimmed.
 - Today: `accent` filled circle. Selected day (when ≠ today): `accent` ring; the selected row gets a subtle highlight band. While an agenda row on today is selected, today's circle uses the selection color instead of the filled `accent`.
-- Under each day: up to 4 small dots, one per event, colored by calendar; a `✓` glyph if a task is due; a `bad` dot for a declined/unavailable item. **[decision]** cap at 4 dots, then "…".
+- Under each day: up to 4 small dots, one per event, colored by calendar; a `✓` glyph if a task is due. **[decision]** Declined events get no dot ("Show declined events" is off). **[decision]** cap at 4 dots, then "…".
 - Click a day → the agenda list **smooth‑scrolls** (animated, ~0.3 s) so that day's section header lands at the top of the list; the day becomes the selected day. Days with no events still get a header ("No events" placeholder row) so the scroll target always exists. **[decision]** Scrolling the list manually does not change the selected day.
 - **Double‑click a day** → starts a new entry pre‑dated to that day (input gets focus, form shows that date).
 - Keyboard: `←/→` month, `⇧←/⇧→` day, `⇧↑/⇧↓` week, `⌘T` today.
@@ -419,7 +419,7 @@ Tasks are Google Tasks. Completing writes `status: "completed"`; uncompleting wr
 
 Tabs: **General**, **Accounts**, **Appearance**, **Events & Tasks**, **Calendars**.
 
-- General: Launch at login; Global shortcut recorder; Default calendar; Default task list; Default event duration (15/30/45/60/90/120 min); Start week on; Day starts/ends; Play UI sound; Go to today after adding items; Show alerts (on); Check for updates automatically (on, §20).
+- General: Launch at login; Global shortcut recorder; Default calendar; Default task list; Default event duration (15/30/45/60/90/120 min); Start week on; Day starts at (**[decision]** the hour a new timed slot starts; "Day ends" is omitted because only the out-of-scope Day and Week views use it); Play UI sound; Go to today after adding items; Show alerts (on); Check for updates automatically (on, §20).
 - Accounts: one row per signed‑in Google account (email, "Sign Out"), and an "Add Account…" button (§8.5).
 - Appearance: Menu bar icon shows (Icon only / Date / Next event title / Next event + countdown); Use color icon; Text size (Small/Normal/Large); Theme (System/Light/Dark). All four icon options are in v1.
 - Events & Tasks: List shows (Next 7 days / 14 / 30 / All days); Show when events end; Show declined events; Combine identical events; Dim items on previous days; Show tasks in list; Show completed tasks; Sort tasks by (Due Date / My Order).
@@ -466,7 +466,7 @@ Kalendar uses its own palette, not the reference app's. It is the palette of bro
 | line | `#E2E7EE` | `#223042` | hairline separators |
 | ok | `#16A34A` | `#4ADE80` | accepted attendee |
 | wait | `#B7791F` | `#F0B458` | tentative attendee, overdue task date |
-| bad | `#C0392B` | `#F87171` | declined attendee, declined-item dot, inline errors, pending-invitation badge |
+| bad | `#C0392B` | `#F87171` | declined attendee, inline errors, pending-invitation badge |
 
 - Row selection: accent at 20% opacity behind the row, text stays `text`.
 - Calendar color dots keep each calendar's own Google color.

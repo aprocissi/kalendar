@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.onChange = { [weak self] in
             agenda.cacheChanged()
             self?.alerts.setNeedsReschedule()
+            self?.statusItem?.redraw()
         }
         let model = PopoverModel(accounts: accounts, agenda: agenda, writer: writer, signIn: signIn,
                                  showSettings: { [weak self] in self?.showSettings() },
@@ -50,10 +51,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onToggle: { [weak self] in self?.togglePopover() },
             menu: makeStatusMenu())
         HotkeyCenter.shared.handler = { [weak self] in self?.togglePopover() }
-        HotkeyCenter.shared.install()
+        let prefs = Preferences.shared
+        HotkeyCenter.shared.register(prefs.hotkey)
+        prefs.applyAppearance()
+        statusItem.nextEvent = { [weak self] in self?.nextEventToday() }
+        statusItem.redraw()
+        prefs.onChange = { [weak self] key in
+            guard let self else { return }
+            switch key {
+            case "hotkey": HotkeyCenter.shared.register(prefs.hotkey)
+            case "iconStyle", "colorIcon": statusItem.redraw()
+            case "showAlerts": alerts.setNeedsReschedule()
+            case "listDays": agenda.settingsChanged(restartList: true)
+            case "firstWeekday", "showDeclined", "combineIdentical", "showTasksInList", "showCompletedTasks",
+                 "taskSort", "hiddenTaskLists":
+                agenda.settingsChanged(restartList: false)
+            default: break   // the rest are read when used, or observed by the views
+            }
+        }
+        for name in [NSLocale.currentLocaleDidChangeNotification, .NSSystemTimeZoneDidChange] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { prefs.systemCalendarChanged() }
+            }
+        }
         _ = UpdaterController.shared   // starts Sparkle's scheduled checks; `shared` is lazy
         LaunchAtLogin.enableOnFirstLaunch()
         startSyncTriggers()
+        // `--args -renderSnapshots <dir>` renders the UI off screen and quits (Snapshots.swift)
+        if let directory = UserDefaults.standard.string(forKey: "renderSnapshots") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                Snapshots.render(model: model, settings: { [self] tab in
+                    SettingsView(accounts: self.accounts, cache: self.cache, engine: self.engine, alerts: self.alerts,
+                                 signIn: self.signIn, tab: tab)
+                }, to: directory)
+                NSApp.terminate(nil)
+            }
+        }
         // `open Kalendar.app --args -openPopoverAtLaunch YES` opens the popover for UI testing.
         // Delayed because the status item has no on-screen position yet at launch, and NSPopover
         // silently refuses to show against it.
@@ -100,6 +133,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func sync() { Task { await engine.syncAll() } }
+
+    /// The menu bar's next event (§12): the first timed event today, not declined, that hasn't ended.
+    private func nextEventToday() -> EventInstance? {
+        let now = Date()
+        guard let end = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)),
+              let events = try? cache.events(from: now, to: end) else { return nil }
+        return events.first { !$0.allDay && !$0.isDeclined && $0.end > now }
+    }
 
     private func syncIfNeeded(maxAge: TimeInterval) { Task { await engine.syncIfNeeded(maxAge: maxAge) } }
 
