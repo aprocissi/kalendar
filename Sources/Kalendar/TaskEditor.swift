@@ -197,7 +197,10 @@ struct TaskRow: View {
             .accessibilityLabel(task.completed ? "Uncomplete" : "Complete")
             VStack(alignment: .leading, spacing: 1) {
                 if let due = task.due, showsDue || overdue {
-                    Text(due.formatted(.dateTime.month(.abbreviated).day()))
+                    // "Sep 28"; a date in another year shows it: "Jul 17, 2023"
+                    Text(Calendar.current.isDate(due, equalTo: today, toGranularity: .year)
+                         ? due.formatted(.dateTime.month(.abbreviated).day())
+                         : due.formatted(.dateTime.month(.abbreviated).day().year()))
                         .uiFont(11)
                         .foregroundStyle(overdue ? Theme.wait : Theme.muted)
                 }
@@ -212,7 +215,7 @@ struct TaskRow: View {
         .padding(.leading, CGFloat(depth) * 20)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .rowSelection(actions.agenda.selectedEvent == task.key)
+        .rowSelection(actions.agenda.selection == task.key)
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .background(AnchorView(view: $anchor))
@@ -303,8 +306,8 @@ struct TasksView: View {
                     .padding(.vertical, 6)
                 }
                 // keyboard selection (§11) keeps the selected row on screen
-                .onChange(of: agenda.selectedEvent) {
-                    if let key = agenda.selectedEvent { proxy.scrollTo(key) }
+                .onChange(of: agenda.selection) {
+                    if let key = agenda.selection { proxy.scrollTo(key) }
                 }
             }
         }
