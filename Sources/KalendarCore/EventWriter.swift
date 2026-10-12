@@ -18,10 +18,10 @@ public final class EventWriter {
     /// The last delete, while it can be undone (⌘Z, §8.2).
     public private(set) var undoableDelete: EventInstance?
 
-    @ObservationIgnored private let accounts: AccountStore
-    @ObservationIgnored private let cache: CalendarCache
-    @ObservationIgnored private let engine: SyncEngine
-    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored let accounts: AccountStore
+    @ObservationIgnored let cache: CalendarCache
+    @ObservationIgnored let engine: SyncEngine
+    @ObservationIgnored let now: () -> Date
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored private var lastDeleteScope: Scope = .occurrence
 
@@ -166,7 +166,7 @@ public final class EventWriter {
     /// A new event from the input form (§5.4): cached at once under a placeholder id that Google's
     /// copy replaces when the insert lands. Invitees are emailed (`sendUpdates=all`, §5.1).
     public func insert(_ draft: EventDraft) {
-        let placeholder = "local-\(UUID().uuidString)"
+        let placeholder = Self.placeholderId()
         var write = PendingWrite(
             account: draft.account, calendarId: draft.calendarId, eventId: placeholder, method: "POST",
             path: GoogleCalendarAPI.eventPath(calendarId: draft.calendarId),
@@ -178,6 +178,9 @@ public final class EventWriter {
         engine.onChange()
         Task { await flush() }
     }
+
+    /// A new item's id until Google's copy arrives.
+    static func placeholderId() -> String { "local-\(UUID().uuidString)" }
 
     /// Duplicate (§7.1): a copy of this occurrence on the same calendar, without its guests.
     public func duplicate(_ event: EventInstance) {
@@ -212,7 +215,7 @@ public final class EventWriter {
                      fallbackBody: fallbackBody, summary: summary ?? event.summary, createdAt: now())
     }
 
-    private func enqueue(_ write: PendingWrite) {
+    func enqueue(_ write: PendingWrite) {
         do { try cache.enqueue(write) } catch {
             self.error = "Couldn't save “\(write.summary)”: \(error.localizedDescription)"
         }
@@ -256,8 +259,8 @@ public final class EventWriter {
             if status == 429 || (500..<600).contains(status) { break }
             try? cache.removeWrite(id)
             changed = true
-            // 410 on a delete: already gone, which is what the delete wanted
-            let accepted = (200..<300).contains(status) || (status == 410 && write.method == "DELETE")
+            // 404 or 410 on a delete: already gone, which is what the delete wanted
+            let accepted = (200..<300).contains(status) || (write.method == "DELETE" && (status == 404 || status == 410))
             switch status {
             case _ where accepted:
                 await landed(write, data: data)
@@ -300,6 +303,7 @@ public final class EventWriter {
 
     /// A write Google accepted: its response becomes the cached event.
     private func landed(_ write: PendingWrite, data: Data) async {
+        if write.isTask { return landedTask(write, data: data) }
         let calendarId = write.query["destination"] ?? write.calendarId
         let g = write.method == "DELETE" ? nil : try? JSONDecoder().decode(GoogleCalendarAPI.GoogleEvent.self, from: data)
         // writes queued behind this one were made against the version it replaced
@@ -315,6 +319,7 @@ public final class EventWriter {
         guard let g else { return }
         if let placeholder = write.replaces {
             try? cache.deleteEvent(account: write.account, calendarId: calendarId, id: placeholder)
+            try? cache.retargetQueued(account: write.account, calendarId: calendarId, from: placeholder, to: g.id)
         }
         if g.isRecurringMaster {
             // an inserted series: its occurrences, not the master, belong in the cache
@@ -326,6 +331,7 @@ public final class EventWriter {
 
     /// The cache's copy of the event after a rejected write: whatever Google has now.
     private func refetch(_ write: PendingWrite) async {
+        if write.isTask { return await refetchTask(write) }
         if let series = write.refreshSeries {
             await engine.refreshSeries(series, account: write.account, calendarId: write.calendarId)
             return
@@ -344,9 +350,10 @@ public final class EventWriter {
     }
 
     private func report(_ write: PendingWrite, _ reason: String?) {
-        let title = write.summary.isEmpty ? "the event" : "“\(write.summary)”"
+        let (noun, service) = write.isTask ? ("the task", "Google Tasks") : ("the event", "Google Calendar")
+        let title = write.summary.isEmpty ? noun : "“\(write.summary)”"
         error = reason.map { "Couldn't save \(title): \($0)" }
-            ?? "\(title.prefix(1).uppercased() + title.dropFirst()) changed in Google Calendar, so your edit wasn't saved."
+            ?? "\(title.prefix(1).uppercased() + title.dropFirst()) changed in \(service), so your edit wasn't saved."
     }
 }
 

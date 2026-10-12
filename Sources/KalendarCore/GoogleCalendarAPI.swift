@@ -32,9 +32,10 @@ public enum GoogleCalendarAPI {
     /// A request builder: AccountStore calls it with the account's current access token.
     public typealias Builder = (String) -> URLRequest
 
+    /// `path` is under the Calendar API base, or an absolute URL (Tasks API writes in the queue).
     static func request(_ path: String, _ query: [String: String?], method: String = "GET",
                         body: Data? = nil, accessToken: String) -> URLRequest {
-        var c = URLComponents(string: base + path)!
+        var c = URLComponents(string: path.hasPrefix("https://") ? path : base + path)!
         c.queryItems = query.sorted { $0.key < $1.key }.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
         var r = URLRequest(url: c.url!)
         r.httpMethod = method
@@ -114,6 +115,20 @@ public enum GoogleCalendarAPI {
 
     static func iso(_ date: Date) -> String { internetDate.string(from: date) }
 
+    /// "2026-10-12" is a calendar day, not an instant: midnight in the user's time zone. Used for
+    /// all-day events and task due dates.
+    static func localDay(_ ymd: some StringProtocol, calendar: Calendar) -> Date? {
+        let parts = ymd.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
+    /// The calendar day of `date` as "2026-10-12".
+    static func ymd(_ date: Date, calendar: Calendar) -> String {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+    }
+
     public static func eventPath(calendarId: String, eventId: String? = nil) -> String {
         "/calendars/\(pathSegment(calendarId))/events" + (eventId.map { "/\(pathSegment($0))" } ?? "")
     }
@@ -126,7 +141,7 @@ public enum GoogleCalendarAPI {
     public static func writeRequest(_ w: PendingWrite) -> Builder {
         { token in
             var query = w.query.mapValues { Optional($0) }
-            if w.method != "DELETE" { query["fields"] = eventFields }
+            if w.method != "DELETE" && !w.isTask { query["fields"] = eventFields }
             var r = request(w.path, query, method: w.method, body: w.body, accessToken: token)
             if let etag = w.ifMatch { r.setValue(etag, forHTTPHeaderField: "If-Match") }
             return r
@@ -276,10 +291,7 @@ public enum GoogleCalendarAPI {
                 return (d, false)
             }
             if let day = t.date {
-                // all-day dates are calendar days, not instants: midnight in the user's time zone
-                let parts = day.split(separator: "-").compactMap { Int($0) }
-                guard parts.count == 3 else { return nil }
-                return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])).map { ($0, true) }
+                return GoogleCalendarAPI.localDay(day, calendar: calendar).map { ($0, true) }
             }
             return nil
         }

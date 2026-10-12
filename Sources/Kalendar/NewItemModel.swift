@@ -26,8 +26,13 @@ final class NewItemModel {
     let writer: EventWriter
     let accounts: AccountStore
 
-    /// The live form; nil while the input is empty.
+    /// The live form; nil while the input is empty or the entry is a task.
     private(set) var form: EventEditorModel?
+    /// The live task form (§5.1), when the input has a task prefix or ▣ | ✓ chose a task.
+    private(set) var taskForm: TaskEditorModel?
+    /// The ▣ | ✓ choice; nil follows the input's prefix.
+    @ObservationIgnored private var chosenKind: Bool?
+    @ObservationIgnored private var input = ""
     private(set) var trigger: SuggestionTrigger?
     private(set) var suggestions: [Suggestion] = []
     var selected = 0
@@ -65,17 +70,23 @@ final class NewItemModel {
            let match = writable.first(where: { $0.summary.lowercased().hasPrefix(q) }) {
             return match
         }
-        let firstAccount = accounts.accounts.first?.email
-        return writable.first { $0.account == firstAccount && $0.primary } ?? writable.first
+        return agenda.defaultCalendar(account: accounts.accounts.first?.email)
     }
 
     func update(input: String) {
+        self.input = input
         guard !input.trimmingCharacters(in: .whitespaces).isEmpty else {
             reset()
             return
         }
         let parser = NLParser(defaultDay: defaultDay) { [weak self] in self?.contacts.uniqueEmail(named: $0) }
         let parsed = parser.parse(input)
+        // without a task list there is nowhere to add a task, so the input stays an event
+        if chosenKind ?? parsed.isTask, !agenda.taskLists.isEmpty {
+            updateTask(parsed)
+            return
+        }
+        taskForm = nil
         guard let calendar = calendar(for: parsed.calendarQuery) else { return }
         var draft = EventDraft(parsed: parsed, account: calendar.account, calendarId: calendar.id)
         if let chosenLocation { draft.location = chosenLocation }
@@ -100,6 +111,31 @@ final class NewItemModel {
         if trigger?.kind != previous?.kind || trigger?.query != previous?.query { selected = 0 }
         if trigger?.kind == .location { places.query = trigger!.query } else { places.query = "" }
         refreshSuggestions()
+    }
+
+    /// The task form for parsed input: due on the parsed day; the list named after `/`, else the
+    /// first account's first list.
+    private func updateTask(_ parsed: ParsedItem) {
+        form = nil
+        trigger = nil
+        suggestions = []
+        let lists = agenda.taskLists
+        let q = parsed.calendarQuery?.lowercased() ?? ""
+        guard let list = (q.isEmpty ? nil : lists.first { $0.title.lowercased().hasPrefix(q) })
+                ?? agenda.defaultTaskList(account: accounts.accounts.first?.email) else { return }
+        let task = TaskItem(account: list.account, listId: list.id, id: "", title: parsed.title,
+                            due: parsed.hasDate || defaultDay != nil ? Calendar.current.startOfDay(for: parsed.start) : nil)
+        if let taskForm {
+            taskForm.follow(task, timeIgnored: parsed.hasTime)
+        } else {
+            taskForm = TaskEditorModel(task: task, isNew: true, timeIgnored: parsed.hasTime, agenda: agenda, writer: writer)
+        }
+    }
+
+    /// ▣ | ✓ (§5.1).
+    func setKind(task: Bool) {
+        chosenKind = task
+        update(input: input)
     }
 
     private var contacts: [Contact] {
@@ -171,8 +207,15 @@ final class NewItemModel {
 
     /// Adds the event (§5.4). Returns false when there is nothing to add.
     func add() -> Bool {
-        guard let form, form.canAdd else { return false }
-        writer.insert(form.draft)
+        if let taskForm, taskForm.canAdd {
+            let t = taskForm.draft
+            writer.insertTask(title: t.title.trimmingCharacters(in: .whitespaces), notes: t.notes, due: t.due,
+                              account: t.account, listId: t.listId)
+        } else if let form, form.canAdd {
+            writer.insert(form.draft)
+        } else {
+            return false
+        }
         if UserDefaults.standard.object(forKey: "playSounds") as? Bool ?? true { NSSound(named: "Pop")?.play() }
         reset()
         defaultDay = nil
@@ -180,10 +223,12 @@ final class NewItemModel {
     }
 
     /// Whether cancelling should ask first (§8.3): the form was edited by hand, not just typed into.
-    var needsDiscardConfirmation: Bool { form?.hasChanges ?? false }
+    var needsDiscardConfirmation: Bool { form?.hasChanges ?? taskForm?.hasChanges ?? false }
 
     func reset() {
         form = nil
+        taskForm = nil
+        chosenKind = nil
         trigger = nil
         suggestions = []
         chosenCalendar = nil

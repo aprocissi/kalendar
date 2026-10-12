@@ -95,6 +95,15 @@ public struct EventInstance: Codable, Equatable, Hashable, FetchableRecord, Pers
     /// The `CalendarInfo.key` of the event's calendar.
     public var calendarKey: String { "\(account)|\(calendarId)" }
     public var isDeclined: Bool { selfResponse == "declined" }
+
+    /// The same event on several calendars shows once and alerts once (§4.3, §19).
+    public struct DuplicateKey: Hashable {
+        var summary: String
+        var start: Date
+        var end: Date
+        var location: String?
+    }
+    public var duplicateKey: DuplicateKey { DuplicateKey(summary: summary, start: start, end: end, location: location) }
     /// The user's copy of someone else's event with guests: Kalendar can change only the user's
     /// own alerts, color and busy/free, and cannot restore it after a delete (§6, §8.2).
     public var isInvitation: Bool { !organizerSelf && !attendees.isEmpty }
@@ -131,7 +140,7 @@ public struct PendingWrite: Codable, Equatable, FetchableRecord, MutablePersista
     /// The event the write is about, for refetching it when the write fails.
     public var eventId: String
     public var method: String
-    /// Under the Calendar API base, e.g. "/calendars/primary/events/abc".
+    /// Under the Calendar API base, e.g. "/calendars/primary/events/abc"; a task write's is absolute.
     public var path: String
     public var query: [String: String]
     public var body: Data?
@@ -148,6 +157,9 @@ public struct PendingWrite: Codable, Equatable, FetchableRecord, MutablePersista
     public var createdAt: Date
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+
+    /// A Google Tasks write: `calendarId` is the task list and `eventId` the task.
+    public var isTask: Bool { path.hasPrefix(GoogleTasksAPI.base) }
 
     public init(account: String, calendarId: String, eventId: String, method: String, path: String,
                 query: [String: String] = [:], body: [String: Any]? = nil, ifMatch: String? = nil,
@@ -210,5 +222,49 @@ extension Array where Element == Contact {
             return n == lower || n.split(separator: " ").first.map(String.init) == lower
         }.map { $0.email.lowercased() })
         return emails.count == 1 ? first { $0.email.lowercased() == emails.first }?.email : nil
+    }
+}
+
+/// A Google Tasks list (§10).
+public struct TaskList: Codable, Equatable, Hashable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "taskList"
+    public var account: String
+    public var id: String
+    public var title: String
+    /// When this list's tasks were last fetched; the next fetch asks only for changes since then.
+    public var syncedAt: Date?
+
+    public var key: String { "\(account)|\(id)" }
+}
+
+/// A Google task (§10, §18.2). Google keeps only the due date, no time.
+public struct TaskItem: Codable, Equatable, Hashable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "task"
+    public var account: String
+    public var listId: String
+    public var id: String
+    public var title: String
+    public var notes: String?
+    public var completed: Bool
+    /// Local midnight of the due date.
+    public var due: Date?
+    public var parent: String?
+    /// Google's sort key within the list ("My Order").
+    public var position: String
+
+    public var key: String { "\(account)|\(listId)|\(id)" }
+    public var listKey: String { "\(account)|\(listId)" }
+
+    public init(account: String, listId: String, id: String, title: String, notes: String? = nil, completed: Bool = false,
+                due: Date? = nil, parent: String? = nil, position: String = "") {
+        self.account = account
+        self.listId = listId
+        self.id = id
+        self.title = title
+        self.notes = notes
+        self.completed = completed
+        self.due = due
+        self.parent = parent
+        self.position = position
     }
 }
