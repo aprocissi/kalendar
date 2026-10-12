@@ -251,4 +251,12 @@ final class TasksTests: XCTestCase {
         let day = try queue.read { try String.fetchOne($0, sql: "SELECT dueDay FROM task") }
         XCTAssertEqual(day, "2026-09-28")
     }
+
+    /// Google's responses are never cached: a cached ETag made URLSession send a stale If-Match
+    /// with a later write to the same URL, and Google refused the write with 412.
+    func testRequestsAreUncached() {
+        XCTAssertNil(AccountStore.session.configuration.urlCache)
+        let url = GoogleTasksAPI.getTaskRequest(listId: "L1", taskId: "a")("token").url!.absoluteString
+        XCTAssertFalse(url.hasSuffix("?"), url)
+    }
 }
