@@ -14,21 +14,20 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 
     private let popover = NSPopover()
     private var detail: NSPopover?
+    /// The status item button the popover is shown from.
+    private weak var anchor: NSStatusBarButton?
     private let model: PopoverModel
 
-    init(accounts: AccountStore, signIn: @escaping (String?) -> Void) {
-        model = PopoverModel(accounts: accounts, signIn: signIn)
+    init(accounts: AccountStore, signIn: @escaping (String?) -> Void, showSettings: @escaping () -> Void) {
+        model = PopoverModel(accounts: accounts, signIn: signIn, showSettings: showSettings)
         super.init()
         popover.behavior = .transient
-        popover.animates = true
         popover.contentSize = Self.size
         popover.delegate = self
         model.close = { [weak self] in self?.close() }
         model.showDetail = { [weak self] view, content in self?.showDetail(relativeTo: view, content: content) }
         popover.contentViewController = NSHostingController(rootView: PopoverRoot(model: model))
     }
-
-    var isShown: Bool { popover.isShown }
 
     func toggle(relativeTo button: NSStatusBarButton) {
         if popover.isShown {
@@ -38,7 +37,9 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         // An accessory app is not active until told to be; without this the text field cannot
         // become first responder when the popover opens from the global hotkey.
         NSApp.activate(ignoringOtherApps: true)
+        anchor = button
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        Self.paintFrame(of: popover)
         popover.contentViewController?.view.window?.makeKey()
         model.focusInput()
     }
@@ -52,11 +53,31 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         detail?.close()
         let child = NSPopover()
         child.behavior = .transient
-        child.animates = true
         child.contentViewController = NSHostingController(rootView: content.frame(width: 300))
         // to the left of the Mini Window (§6); AppKit flips it to the right when there is no room
         child.show(relativeTo: view.bounds, of: view, preferredEdge: .minX)
+        Self.paintFrame(of: child)
         detail = child
+    }
+
+    /// NSPopover draws its own frame, arrow included, in the system popover material. Putting a
+    /// view in the theme background behind the content view recolors the whole shape, so the arrow
+    /// matches the content instead of showing the material.
+    private static func paintFrame(of popover: NSPopover) {
+        guard let frame = popover.contentViewController?.view.window?.contentView?.superview,
+              !frame.subviews.contains(where: { $0 is PopoverBackgroundView }) else { return }
+        let background = PopoverBackgroundView(frame: frame.bounds)
+        background.autoresizingMask = [.width, .height]
+        frame.addSubview(background, positioned: .below, relativeTo: nil)
+    }
+
+    /// A transient popover closes on mouse-down outside itself. For a mouse-down on the status item,
+    /// stay open: the item's action fires on mouse-up and `toggle` closes the popover then. Closing
+    /// here as well would let that mouse-up reopen it.
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        guard popover === self.popover, let window = anchor?.window,
+              let event = NSApp.currentEvent, event.type == .leftMouseDown else { return true }
+        return event.window !== window
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -73,15 +94,17 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 final class PopoverModel {
     let accounts: AccountStore
     let signIn: (String?) -> Void
+    let showSettings: () -> Void
     var input = ""
     /// Bumped to ask the input field to take focus.
     var focusRequest = 0
     @ObservationIgnored var close: () -> Void = {}
     @ObservationIgnored var showDetail: (NSView, AnyView) -> Void = { _, _ in }
 
-    init(accounts: AccountStore, signIn: @escaping (String?) -> Void) {
+    init(accounts: AccountStore, signIn: @escaping (String?) -> Void, showSettings: @escaping () -> Void) {
         self.accounts = accounts
         self.signIn = signIn
+        self.showSettings = showSettings
     }
 
     func focusInput() { focusRequest += 1 }
@@ -89,5 +112,23 @@ final class PopoverModel {
     /// Esc: clears the input if it has text, otherwise closes the popover (§4).
     func escape() {
         if input.isEmpty { close() } else { input = "" }
+    }
+}
+
+private final class PopoverBackgroundView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("not used from a nib") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        // resolved here, inside the view's appearance, so light and dark both update
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = Theme.nsBackground.cgColor
+        }
     }
 }

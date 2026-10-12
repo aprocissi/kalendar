@@ -48,24 +48,26 @@ struct SettingsView: View {
                 .tabItem { Label("Calendars", systemImage: "calendar") }
         }
         .frame(width: 480, height: 320)
+        .tint(Theme.accent)
     }
 }
 
 private struct GeneralSettings: View {
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
-    // Sparkle reads this user default itself and prefers it over the Info.plist value
-    @AppStorage("SUEnableAutomaticChecks") private var automaticUpdates = true
+    @State private var automaticUpdates = UpdaterController.shared.automaticallyChecks
     @AppStorage("showAlerts") private var showAlerts = true
 
     var body: some View {
         Form {
-            Toggle("Launch at login", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, enabled in
-                    LaunchAtLogin.set(enabled)
-                    launchAtLogin = LaunchAtLogin.isEnabled
-                }
+            // reads back the actual state, which can differ from the request (approval pending)
+            Toggle("Launch at login", isOn: Binding(
+                get: { launchAtLogin },
+                set: { LaunchAtLogin.set($0); launchAtLogin = LaunchAtLogin.isEnabled }))
             Toggle("Show alerts", isOn: $showAlerts)
-            Toggle("Check for updates automatically", isOn: $automaticUpdates)
+            Toggle("Check for updates automatically", isOn: Binding(
+                get: { automaticUpdates },
+                set: { UpdaterController.shared.automaticallyChecks = $0; automaticUpdates = $0 }))
+                .disabled(!UpdaterController.shared.isAvailable)
         }
         .formStyle(.grouped)
     }
@@ -114,12 +116,7 @@ private struct AccountSettingsRow: View {
         .task(id: account) {
             guard !account.needsReauth else { return }
             status = "Checking…"
-            do {
-                let n = try await accounts.calendars(for: account.email).count
-                status = n == 1 ? "1 calendar" : "\(n) calendars"
-            } catch {
-                status = error.localizedDescription
-            }
+            status = await accounts.calendarCountText(for: account.email)
         }
     }
 }

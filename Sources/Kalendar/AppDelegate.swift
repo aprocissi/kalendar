@@ -1,6 +1,5 @@
 import AppKit
 import KalendarCore
-import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -11,7 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var googleSignIn = GoogleSignIn(accounts: accounts)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        popover = PopoverController(accounts: accounts, signIn: signIn)
+        popover = PopoverController(accounts: accounts, signIn: signIn,
+                                    showSettings: { [weak self] in self?.showSettings() })
         statusItem = StatusItemController(
             onToggle: { [weak self] in self?.togglePopover() },
             menu: makeStatusMenu())
