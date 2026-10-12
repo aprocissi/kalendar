@@ -23,6 +23,8 @@ public struct CalendarInfo: Codable, Equatable, Hashable, FetchableRecord, Persi
     public var defaultReminders: [Int] = []
 
     public var key: String { "\(account)|\(id)" }
+    /// Whether the user can add and edit events on it.
+    public var isWritable: Bool { accessRole == "owner" || accessRole == "writer" }
     /// For a calendar or event Google gave no color.
     public static let fallbackColor = "#9A9A9A"
 }
@@ -162,5 +164,51 @@ public struct PendingWrite: Codable, Equatable, FetchableRecord, MutablePersista
         self.fallbackBody = fallbackBody.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         self.summary = summary
         self.createdAt = createdAt
+    }
+}
+
+/// A person for invitee suggestions (§18.4).
+public struct Contact: Codable, Equatable, Hashable, FetchableRecord, PersistableRecord {
+    public static let databaseTableName = "contact"
+    /// The signed-in account the contact came from; empty for an attendee found in cached events.
+    public var account: String
+    public var email: String
+    public var name: String?
+    public var photoURL: String?
+
+    public init(account: String, email: String, name: String?, photoURL: String?) {
+        self.account = account
+        self.email = email
+        self.name = name
+        self.photoURL = photoURL
+    }
+}
+
+extension Array where Element == Contact {
+    /// Contacts whose name or email contains `query`; names with a word starting with it come
+    /// first, then emails starting with it (§5.2: "fuzzy on first/last name").
+    public func matching(_ query: String, limit: Int = 8) -> [Contact] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return [] }
+        func rank(_ c: Contact) -> Int? {
+            let name = (c.name ?? "").lowercased(), email = c.email.lowercased()
+            if name.split(separator: " ").contains(where: { $0.hasPrefix(q) }) { return 0 }
+            if email.hasPrefix(q) { return 1 }
+            return name.contains(q) || email.contains(q) ? 2 : nil
+        }
+        return compactMap { c in rank(c).map { (c, $0) } }
+            .sorted { ($0.1, $0.0.name ?? $0.0.email) < ($1.1, $1.0.name ?? $1.0.email) }
+            .prefix(limit).map(\.0)
+    }
+
+    /// The email of the one contact whose full or first name is `name`, for `with <name>` (§5.2).
+    /// nil when no contact matches or several do.
+    public func uniqueEmail(named name: String) -> String? {
+        let lower = name.lowercased()
+        let emails = Set(filter { c in
+            guard let n = c.name?.lowercased() else { return false }
+            return n == lower || n.split(separator: " ").first.map(String.init) == lower
+        }.map { $0.email.lowercased() })
+        return emails.count == 1 ? first { $0.email.lowercased() == emails.first }?.email : nil
     }
 }

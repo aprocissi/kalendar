@@ -99,6 +99,15 @@ public final class CalendarCache: @unchecked Sendable {
         m.registerMigration("v3-replaces") { db in
             try db.alter(table: "pendingWrite") { t in t.add(column: "replaces", .text) }
         }
+        m.registerMigration("v4-contacts") { db in
+            try db.create(table: "contact") { t in
+                t.column("account", .text).notNull()
+                t.column("email", .text).notNull()
+                t.column("name", .text)
+                t.column("photoURL", .text)
+                t.primaryKey(["account", "email"])
+            }
+        }
         return m
     }
 
@@ -131,9 +140,7 @@ public final class CalendarCache: @unchecked Sendable {
     /// Case-insensitive substring search over selected calendars (§9). `All` is title, location,
     /// notes and attendee names and emails.
     public func search(_ text: String, scope: SearchScope) throws -> [EventInstance] {
-        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
-        let pattern = "%\(escaped)%"
+        let pattern = Self.containsPattern(text)
         // attendees is a JSON array; match only each attendee's name and email, not the JSON keys
         let invitees = "EXISTS (SELECT 1 FROM json_each(event.attendees) WHERE "
             + "json_extract(value, '$.email') LIKE :p ESCAPE '\\' "
@@ -153,6 +160,13 @@ public final class CalendarCache: @unchecked Sendable {
                 ORDER BY event.start LIMIT 500
                 """, arguments: ["p": pattern])
         }
+    }
+
+    /// A `LIKE … ESCAPE '\\'` pattern matching any text that contains `text` literally.
+    static func containsPattern(_ text: String) -> String {
+        let escaped = text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_")
+        return "%\(escaped)%"
     }
 
     /// colorId → "#rrggbb" for each account.
@@ -293,6 +307,43 @@ public final class CalendarCache: @unchecked Sendable {
         return rows.filter { seen.insert("\($0.account)|\($0.recurringEventId ?? $0.id)").inserted }
     }
 
+    // MARK: Contacts (§18.4)
+
+    public func replaceContacts(_ contacts: [Contact], account: String) throws {
+        try db.write { db in
+            try Contact.filter(Column("account") == account).deleteAll(db)
+            for c in contacts { try c.insert(db, onConflict: .replace) }
+        }
+    }
+
+    /// Everyone suggestions can offer (§5.1, §18.4): contacts from both accounts, then attendees of
+    /// cached events, each email once. The new-item form loads this once per entry and filters it in
+    /// memory as the user types.
+    public func allContacts() throws -> [Contact] {
+        try db.read { db in
+            let saved = try Contact.fetchAll(db)
+            let attendees = try Row.fetchAll(db, sql: """
+                SELECT DISTINCT json_extract(value, '$.email') AS email, json_extract(value, '$.displayName') AS name
+                FROM event, json_each(event.attendees)
+                WHERE NOT json_extract(value, '$.isSelf')
+                """).map { Contact(account: "", email: $0["email"], name: $0["name"], photoURL: nil) }
+            var seen = Set<String>()
+            return (saved + attendees).filter { seen.insert($0.email.lowercased()).inserted }
+        }
+    }
+
+    /// Locations of past events that contain `query`, most recent first (§5.2: "previous
+    /// locations first").
+    public func recentLocations(matching query: String, limit: Int = 3) throws -> [String] {
+        let like = Self.containsPattern(query)
+        return try db.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT location FROM event WHERE location LIKE ? ESCAPE '\\' AND location NOT LIKE 'http%'
+                GROUP BY location ORDER BY MAX(start) DESC LIMIT ?
+                """, arguments: [like, limit])
+        }
+    }
+
     // MARK: Write queue (§18.3)
 
     public func enqueue(_ write: PendingWrite) throws {
@@ -339,6 +390,7 @@ public final class CalendarCache: @unchecked Sendable {
             try CalendarInfo.filter(Column("account") == account).deleteAll(db)
             try EventColor.filter(Column("account") == account).deleteAll(db)
             try PendingWrite.filter(Column("account") == account).deleteAll(db)
+            try Contact.filter(Column("account") == account).deleteAll(db)
         }
     }
 }

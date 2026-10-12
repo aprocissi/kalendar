@@ -44,14 +44,21 @@ public final class SyncEngine {
     /// includes the write, so the overlay can go.
     @ObservationIgnored private var pendingSelected: [String: (selected: Bool, landedAt: Int?)] = [:]
 
+    /// Where each account's last contact fetch time is kept, so a relaunch doesn't refetch (§18.4).
+    @ObservationIgnored private let defaults: UserDefaults
+
     static let windowRadius: TimeInterval = 365 * 86400
     static let staleWindow: TimeInterval = 30 * 86400
 
-    public init(accounts: AccountStore, cache: CalendarCache, now: @escaping () -> Date = Date.init) {
+    public init(accounts: AccountStore, cache: CalendarCache, defaults: UserDefaults = .standard,
+                now: @escaping () -> Date = Date.init) {
         self.accounts = accounts
         self.cache = cache
+        self.defaults = defaults
         self.now = now
     }
+
+    private static func contactsKey(_ account: String) -> String { "contactsSynced.\(account)" }
 
     /// Syncs every signed-in account. A call while a sync runs schedules exactly one more after it.
     public func syncAll() async {
@@ -128,9 +135,10 @@ public final class SyncEngine {
         }
 
         // calendars sync concurrently, so their requests overlap; a free/busy-only calendar returns
-        // no event details, so there is nothing to show for it
+        // no event details, so there is nothing to show for it. Contacts load alongside them.
         let calendars = try cache.calendars(account: account).filter { $0.accessRole != "freeBusyReader" }
         try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { await self.syncContactsIfStale(account: account) }
             for calendar in calendars {
                 group.addTask { try await self.sync(calendar: calendar) }
             }
@@ -220,6 +228,35 @@ public final class SyncEngine {
             // 404 or 410 Gone on an instances request means the series was deleted
             return []
         }
+    }
+
+    /// Fetches the account's contacts when they are a day old or Refresh All asked (§18.4). A source
+    /// Google refuses (a contacts scope the user unticked, the directory of a personal account) is
+    /// skipped. Any other failure only logs: suggestions keep the previous contacts, the next sync
+    /// tries again, and calendar sync goes on.
+    private func syncContactsIfStale(account: String) async {
+        if let last = defaults.object(forKey: Self.contactsKey(account)) as? Date, now().timeIntervalSince(last) < 86400 { return }
+        var contacts: [Contact] = []
+        for source in GooglePeopleAPI.Source.allCases {
+            do {
+                contacts += try await pages(GooglePeopleAPI.Page.self, for: account) { source.request(pageToken: $0) }
+                    .flatMap { $0.contacts(account: account) }
+            } catch where source == .directory {
+                // the directory exists only for Workspace accounts; a personal account answers with an error
+            } catch GoogleCalendarAPI.APIError.http(let status) where (400..<500).contains(status) && status != 429 {
+                Log.sync.info("contacts \(String(describing: source)) refused (\(status)); skipped")
+            } catch {
+                Log.sync.error("contacts \(String(describing: source)) failed: \(error.localizedDescription)")
+                return
+            }
+        }
+        try? cache.replaceContacts(contacts, account: account)
+        defaults.set(now(), forKey: Self.contactsKey(account))
+    }
+
+    /// Refresh All (⇧⌘R) also refetches contacts.
+    public func forgetContactSync() {
+        for account in accounts.accounts { defaults.removeObject(forKey: Self.contactsKey(account.email)) }
     }
 
     /// Replaces a series' cached instances with Google's current ones (after a write to the series).

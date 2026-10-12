@@ -3,6 +3,8 @@ import SwiftUI
 
 struct MonthGrid: View {
     let model: AgendaModel
+    /// Double-clicking a day starts a new entry on it (§4.2).
+    var onDoubleClick: (Date) -> Void = { _ in }
 
     private var calendar: Calendar { .current }
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
@@ -23,7 +25,7 @@ struct MonthGrid: View {
                 let row = Array(days[week * 7..<(week + 1) * 7])
                 HStack(spacing: 0) {
                     ForEach(row, id: \.self) { day in
-                        DayCell(day: day, model: model)
+                        DayCell(day: day, model: model, onDoubleClick: onDoubleClick)
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -48,6 +50,7 @@ struct MonthGrid: View {
 private struct DayCell: View {
     let day: Date
     let model: AgendaModel
+    let onDoubleClick: (Date) -> Void
 
     private var calendar: Calendar { .current }
 
@@ -80,7 +83,9 @@ private struct DayCell: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onTapGesture { model.select(day) }
+        // the single click selects at once rather than waiting out the double-click interval
+        .gesture(TapGesture(count: 2).onEnded { onDoubleClick(day) })
+        .simultaneousGesture(TapGesture().onEnded { model.select(day) })
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel(isToday: isToday, count: marks.colors.count))
         .accessibilityAddTraits(.isButton)

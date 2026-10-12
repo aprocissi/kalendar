@@ -158,7 +158,9 @@ final class PopoverModel {
     let showSettings: () -> Void
     let refresh: () -> Void
     let writer: EventWriter
-    var input = ""
+    let newItem: NewItemModel
+    /// The input row's text; every change re-parses the new-item form (§5).
+    var input = "" { didSet { if input != oldValue { newItem.update(input: input) } } }
     /// Bumped to ask the input field to take focus.
     var focusRequest = 0
     @ObservationIgnored var close: () -> Void = {}
@@ -171,12 +173,16 @@ final class PopoverModel {
         self.accounts = accounts
         self.agenda = agenda
         self.writer = writer
+        newItem = NewItemModel(agenda: agenda, writer: writer, accounts: accounts)
         self.signIn = signIn
         self.showSettings = showSettings
         self.refresh = refresh
     }
 
     func focusInput() { focusRequest += 1 }
+
+    /// The new-item suggestion list shows, and takes keys, only while typing a new item, not in search.
+    var showsSuggestions: Bool { !agenda.searchMode && newItem.showsSuggestions }
 
     /// Every open starts on today (§4) with the agenda list, not search.
     func willOpen() {
@@ -185,17 +191,49 @@ final class PopoverModel {
         agenda.query = ""
         agenda.selectedEvent = nil
         agenda.resetToToday()
+        // a double-clicked day dates only the entry it started
+        if input.isEmpty { newItem.defaultDay = nil }
     }
 
-    /// Esc: clears the field if it has text; leaves search; otherwise closes the popover (§4, §9).
+    /// Esc: hides suggestions; clears the field if it has text; leaves search; otherwise closes the
+    /// popover (§4, §9, §11).
     func escape() {
-        if agenda.searchMode {
+        if showsSuggestions {
+            newItem.dismissSuggestions()
+        } else if agenda.searchMode {
             if agenda.query.isEmpty { toggleSearch() } else { agenda.query = "" }
         } else if input.isEmpty {
             close()
         } else {
-            input = ""
+            cancelNewItem()
         }
+    }
+
+    /// × or Esc on a new item: asks first when the form was edited by hand (§8.3).
+    func cancelNewItem() {
+        if newItem.needsDiscardConfirmation && !Dialogs.confirmDiscard() { return }
+        input = ""
+        newItem.defaultDay = nil
+        focusInput()
+    }
+
+    /// Enter or Add Event (§5.4): adds, clears, and returns to today after ~2 s.
+    func addNewItem() {
+        guard newItem.add() else { return }
+        input = ""
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            // unless the user started something else in the meantime
+            guard let self, input.isEmpty, !agenda.searchMode, agenda.selectedEvent == nil else { return }
+            agenda.resetToToday()
+        }
+    }
+
+    /// Double-clicking a day starts a new entry dated that day (§4.2).
+    func startNewItem(on day: Date) {
+        newItem.defaultDay = day
+        newItem.update(input: input)
+        focusInput()
     }
 
     func toggleSearch() {
@@ -288,6 +326,19 @@ final class PopoverModel {
     /// Returns true when the key was handled (§11).
     func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        // the suggestion list takes ↑ ↓ Enter Tab while it shows (§5.2)
+        if showsSuggestions, flags.isEmpty {
+            switch event.keyCode {
+            case 126: newItem.moveSelection(by: -1); return true
+            case 125: newItem.moveSelection(by: 1); return true
+            case 36, 76, 48: input = newItem.accept(in: input); return true
+            default: break
+            }
+        }
+        if !input.isEmpty, !agenda.searchMode, flags.isEmpty, event.keyCode == 36 || event.keyCode == 76 {
+            addNewItem()
+            return true
+        }
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         switch (flags, key) {
         case ([.command], "f"): if !agenda.searchMode { toggleSearch() }; return true
