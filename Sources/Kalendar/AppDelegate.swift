@@ -74,10 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 MainActor.assumeIsolated { prefs.systemCalendarChanged() }
             }
         }
-        _ = UpdaterController.shared   // starts Sparkle's scheduled checks; `shared` is lazy
-        LaunchAtLogin.enableOnFirstLaunch()
-        startSyncTriggers()
-        // `--args -selfTest <file>` runs the Google write paths and quits (SelfTest.swift)
+        // `--args -selfTest <file>` runs the Google write paths and quits (SelfTest.swift).
+        // Before the sync triggers, so no background sync overlaps the writes it checks.
         if let report = UserDefaults.standard.string(forKey: "selfTest") {
             Task { [self] in
                 var test = SelfTest(accounts: accounts, cache: cache, engine: engine, writer: writer)
@@ -86,6 +84,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        _ = UpdaterController.shared   // starts Sparkle's scheduled checks; `shared` is lazy
+        LaunchAtLogin.enableOnFirstLaunch()
+        startSyncTriggers()
         // `--args -renderSnapshots <dir>` renders the UI off screen and quits (Snapshots.swift)
         if let directory = UserDefaults.standard.string(forKey: "renderSnapshots") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

@@ -29,23 +29,25 @@ struct SelfTest {
 
     private mutating func note(_ what: String) { lines.append("     " + what) }
 
-    /// Google's copy of an event as JSON, with the HTTP status.
-    private func googleEvent(_ account: String, _ calendarId: String, _ id: String) async -> (Int, [String: Any]) {
-        guard let (data, status) = try? await accounts.sendAuthorized(for: account,
-                GoogleCalendarAPI.getEventRequest(calendarId: calendarId, eventId: id)) else { return (0, [:]) }
+    /// Google's copy of an event or task as JSON, with the HTTP status.
+    private func google(_ account: String, _ request: GoogleCalendarAPI.Builder) async -> (Int, [String: Any]) {
+        guard let (data, status) = try? await accounts.sendAuthorized(for: account, request) else { return (0, [:]) }
         return (status, (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
     }
 
+    private func googleEvent(_ account: String, _ calendarId: String, _ id: String) async -> (Int, [String: Any]) {
+        await google(account, GoogleCalendarAPI.getEventRequest(calendarId: calendarId, eventId: id))
+    }
+
     private func googleTask(_ account: String, _ listId: String, _ id: String) async -> (Int, [String: Any]) {
-        guard let (data, status) = try? await accounts.sendAuthorized(for: account,
-                GoogleTasksAPI.getTaskRequest(listId: listId, taskId: id)) else { return (0, [:]) }
-        return (status, (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:])
+        await google(account, GoogleTasksAPI.getTaskRequest(listId: listId, taskId: id))
     }
 
     mutating func run(reportTo path: String) async {
         await engine.syncAll()
         await events()
         await tasks()
+        await cleanUpLeftovers()
         await notification()
         lines.append(failures == 0 ? "ALL PASSED" : "\(failures) FAILED")
         try? lines.joined(separator: "\n").write(toFile: path, atomically: true, encoding: .utf8)
@@ -75,6 +77,7 @@ struct SelfTest {
         var edited = original
         edited.summary = title + " (edited)"
         edited.location = "Kalendar test location"
+        writer.clearError()
         writer.save(created, original: original, draft: edited, scope: .occurrence, series: nil)
         await writer.flush()
         (status, g) = await googleEvent(calendar.account, calendar.id, created.id)
@@ -163,10 +166,22 @@ struct SelfTest {
         note("delete: Google now \(status) deleted=\(g["deleted"] as? Bool ?? false) status=\(g["status"] as? String ?? "-")")
         check(status == 404 || g["deleted"] as? Bool == true, "task delete: Google deleted it (HTTP \(status))")
         check((try? cache.allTasks().contains { $0.title == title }) == false, "task delete: gone from the cache")
-        // leftovers from earlier runs
-        for old in (try? cache.allTasks().filter { $0.title.hasPrefix("Kalendar self-test task") }) ?? [] {
-            writer.deleteTask(old)
-            await writer.flush()
+    }
+
+    /// Deletes self-test events and tasks that a failed step of this or an earlier run left behind.
+    private mutating func cleanUpLeftovers() async {
+        let events = (try? cache.calendars().filter { $0.summary == "test" && $0.isWritable }
+            .flatMap { try cache.events(account: $0.account, calendarId: $0.id) }
+            .filter { $0.summary.hasPrefix("Kalendar self-test ") }) ?? []
+        let tasks = (try? cache.allTasks().filter { $0.title.hasPrefix("Kalendar self-test task") }) ?? []
+        for old in events { writer.delete(old, scope: .occurrence) }
+        for old in tasks { writer.deleteTask(old) }
+        await writer.flush()
+        for old in events {
+            let (s, j) = await googleEvent(old.account, old.calendarId, old.id)
+            note("cleanup: leftover \"\(old.summary)\" → HTTP \(s) status=\(j["status"] as? String ?? "-")")
+        }
+        for old in tasks {
             let (s, j) = await googleTask(old.account, old.listId, old.id)
             note("cleanup: leftover \"\(old.title)\" → HTTP \(s) deleted=\(j["deleted"] as? Bool ?? false)")
         }
@@ -176,7 +191,8 @@ struct SelfTest {
 
     private mutating func notification() async {
         let center = UNUserNotificationCenter.current()
-        let allowed = await center.notificationSettings().authorizationStatus == .authorized
+        // provisional authorization delivers quietly to Notification Center, which is what this checks
+        let allowed = await [.authorized, .provisional].contains(center.notificationSettings().authorizationStatus)
         check(allowed, "notifications are authorized")
         guard allowed else { return }
         let start = Date().addingTimeInterval(600)
