@@ -36,9 +36,9 @@ public final class AccountStore {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let vault: TokenVault
-    /// Google's API with no response cache. URLSession.shared caches GET responses and then makes
-    /// a later write to the same URL conditional on the cached ETag: a task DELETE after a move got
-    /// 412 "conditionNotMet, If-Match" although Kalendar sends no If-Match (found with -selfTest).
+    /// Google's API with no response cache. With URLSession.shared, which caches GET responses, a
+    /// task DELETE after a GET of the same URL gets 412 "conditionNotMet, If-Match" although
+    /// Kalendar sends no If-Match. With this session it succeeds (-selfTest, run both ways).
     public static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
