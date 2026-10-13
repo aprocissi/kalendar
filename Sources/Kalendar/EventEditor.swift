@@ -80,17 +80,19 @@ struct EventEditor: View {
         let d = model.draft
         VStack(alignment: .leading, spacing: 6) {
             Row("all-day") {
-                Toggle("", isOn: Binding(get: { d.allDay }, set: { model.setAllDay($0) }))
+                Toggle("all-day", isOn: Binding(get: { d.allDay }, set: { model.setAllDay($0) }))
                     .labelsHidden().toggleStyle(.checkbox).disabled(readOnly)
             }
             Row("starts") {
-                DatePicker("", selection: Binding(get: { d.start }, set: { model.setStart($0) }),
+                DatePicker("starts", selection: Binding(get: { d.start }, set: { model.setStart($0) }),
                            displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
                     .labelsHidden().disabled(readOnly)
             }
             Row("ends") {
-                DatePicker("", selection: Binding(get: { model.displayedEnd }, set: { model.displayedEnd = $0 }),
-                           in: d.start..., displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
+                // no `in: d.start...`: when the start moves earlier, NSDatePicker clamps the new end to
+                // the old minimum and shows that; `displayedEnd` keeps the end after the start instead
+                DatePicker("ends", selection: Binding(get: { model.displayedEnd }, set: { model.displayedEnd = $0 }),
+                           displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
                     .labelsHidden().disabled(readOnly)
             }
             if model.expanded && !d.allDay {
@@ -362,7 +364,7 @@ private struct RepeatEndMenu: View {
             .fixedSize()
             switch end {
             case .until(let day):
-                DatePicker("", selection: Binding(get: { day }, set: { set(.until($0)) }),
+                DatePicker("repeat until", selection: Binding(get: { day }, set: { set(.until($0)) }),
                            in: model.draft.start..., displayedComponents: .date)
                     .labelsHidden()
             case .count(let n):

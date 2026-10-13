@@ -90,7 +90,7 @@ struct TaskEditor: View {
                     set: { model.draft.due = $0 ? Calendar.current.startOfDay(for: Date()) : nil }))
                     .toggleStyle(.checkbox)
                 if let due = model.draft.due {
-                    DatePicker("", selection: Binding(get: { due }, set: { model.draft.due = Calendar.current.startOfDay(for: $0) }),
+                    DatePicker("due date", selection: Binding(get: { due }, set: { model.draft.due = Calendar.current.startOfDay(for: $0) }),
                                displayedComponents: [.date])
                         .labelsHidden()
                 }

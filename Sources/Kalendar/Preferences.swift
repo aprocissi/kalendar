@@ -72,7 +72,8 @@ final class Preferences {
     var iconStyle: IconStyle { didSet { save(iconStyle.rawValue, "iconStyle") } }
     var colorIcon: Bool { didSet { save(colorIcon, "colorIcon") } }
     var textSize: TextSize { didSet { save(textSize.rawValue, "textSize") } }
-    var appearance: Appearance { didSet { save(appearance.rawValue, "appearance"); applyAppearance() } }
+    // applied before `save` notifies, so observers read the new NSApp.effectiveAppearance
+    var appearance: Appearance { didSet { applyAppearance(); save(appearance.rawValue, "appearance") } }
 
     // Events & Tasks
     /// Days the agenda list shows from the selected day; 0 is all days (scrolls without end).

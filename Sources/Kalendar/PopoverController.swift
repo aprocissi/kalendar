@@ -53,6 +53,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         anchor = button
         model.willOpen()
+        applyAppearance()
         popover.contentSize = Self.size
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         Self.paintFrame(of: popover)
@@ -64,6 +65,12 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 
     func close() {
         popover.performClose(nil)
+    }
+
+    /// Theme (§12). A popover takes its appearance from the status item it is shown from, which
+    /// follows the menu bar rather than NSApp.appearance; the detail popovers inherit this one's.
+    func applyAppearance() {
+        popover.appearance = NSApp.effectiveAppearance
     }
 
     /// The open child popover's save-on-close, if it is an event's or a task's detail popover.
@@ -115,6 +122,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     /// stay open: the item's action fires on mouse-up and `toggle` closes the popover then. Closing
     /// here as well would let that mouse-up reopen it.
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        // a dialog (§8) taking key must not close the popover behind it: Cancel returns to it
+        if NSApp.modalWindow != nil { return false }
         // the detail popover saves on close (§6) and may ask about a recurring event first
         if popover === detail {
             guard shouldClose?() ?? true else { return false }
@@ -459,6 +468,11 @@ final class PopoverModel {
     /// Returns true when the key was handled (§11).
     func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        // Esc from any field, not only the input: a form field would otherwise close the popover
+        if event.keyCode == 53, flags.isEmpty {
+            escape()
+            return true
+        }
         // the suggestion list takes ↑ ↓ Enter Tab while it shows (§5.2)
         if showsSuggestions, flags.isEmpty {
             switch event.keyCode {
@@ -529,7 +543,7 @@ private struct GoToDate: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            DatePicker("", selection: $day, displayedComponents: .date)
+            DatePicker("Go to date", selection: $day, displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .labelsHidden()
             Button("Go") { go(day) }

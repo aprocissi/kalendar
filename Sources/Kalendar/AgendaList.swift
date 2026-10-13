@@ -22,7 +22,7 @@ struct AgendaList: View {
                                 .id(section.day)
                             ForEach(section.allDay, id: \.key) { event in
                                 AllDayPill(event: event, color: model.color(for: event),
-                                           isSelected: model.selection == event.key)
+                                           isSelected: model.selection == event.key, model: model, actions: actions)
                             }
                             ForEach(section.tasks, id: \.key) { task in
                                 TaskRow(task: task, actions: actions)
@@ -89,6 +89,9 @@ private struct AllDayPill: View {
     let color: Color
     /// Keyboard selection (§11): the row selection color behind the pill.
     let isSelected: Bool
+    let model: AgendaModel
+    let actions: PopoverModel
+    @State private var anchor: NSView?
 
     var body: some View {
         Text(event.summary)
@@ -103,7 +106,16 @@ private struct AllDayPill: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .rowSelection(isSelected)
             .padding(.horizontal, 8)
+            // the same click and right-click as a timed row (§6, §7.1)
+            .contentShape(Rectangle())
+            .background(AnchorView(view: $anchor))
+            .onTapGesture {
+                model.selection = event.key
+                actions.openEvent(event, anchor: anchor)
+            }
+            .contextMenu { EventContextMenu(event: event, actions: actions) }
             .accessibilityLabel("All day: \(event.summary)")
+            .accessibilityAddTraits(.isButton)
             .accessibilityValue(isSelected ? "selected" : "")
     }
 }

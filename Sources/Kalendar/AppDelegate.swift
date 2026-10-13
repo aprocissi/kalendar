@@ -60,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch key {
             case "hotkey": HotkeyCenter.shared.register(prefs.hotkey)
+            case "appearance": popover.applyAppearance()
             case "iconStyle", "colorIcon": statusItem.redraw()
             case "showAlerts": alerts.setNeedsReschedule()
             case "listDays": agenda.settingsChanged(restartList: true)

@@ -264,6 +264,9 @@ final class PlaceSearch: NSObject, MKLocalSearchCompleterDelegate {
             if query.isEmpty {
                 results = []
                 completer.cancel()
+                // the completer ignores a fragment equal to its current one, so retyping the last
+                // query after clearing would otherwise show no results
+                completer.queryFragment = ""
             } else {
                 completer.queryFragment = query
             }
