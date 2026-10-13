@@ -177,7 +177,7 @@ struct SelfTest {
         await writer.flush()
         for old in events {
             let (s, j) = await googleEvent(old.account, old.calendarId, old.id)
-            check(s != 200 || j["status"] as? String == "cancelled", "cleanup: deleted \"\(old.summary)\" (HTTP \(s))")
+            check(s == 404 || s == 410 || j["status"] as? String == "cancelled", "cleanup: deleted \"\(old.summary)\" (HTTP \(s))")
         }
         for old in tasks {
             let (s, j) = await googleTask(old.account, old.listId, old.id)

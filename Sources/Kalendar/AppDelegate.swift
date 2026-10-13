@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // `--args -selfTest <file>` runs the Google write paths and quits (SelfTest.swift).
         // Before the sync triggers, so no background sync overlaps the writes it checks.
-        if let report = UserDefaults.standard.string(forKey: "selfTest") {
+        if let report = Self.launchArgument("selfTest") {
             Task { [self] in
                 var test = SelfTest(accounts: accounts, cache: cache, engine: engine, writer: writer)
                 await test.run(reportTo: report)
@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LaunchAtLogin.enableOnFirstLaunch()
         startSyncTriggers()
         // `--args -renderSnapshots <dir>` renders the UI off screen and quits (Snapshots.swift)
-        if let directory = UserDefaults.standard.string(forKey: "renderSnapshots") {
+        if let directory = Self.launchArgument("renderSnapshots") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 Snapshots.render(model: model, settings: { [self] tab in
                     SettingsView(accounts: self.accounts, cache: self.cache, engine: self.engine, alerts: self.alerts,
@@ -103,6 +103,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if UserDefaults.standard.bool(forKey: "openPopoverAtLaunch") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.togglePopover() }
         }
+    }
+
+    /// A `-key value` launch argument. Only the arguments, not the saved defaults: a `selfTest` or
+    /// `renderSnapshots` key left in the defaults must not run Google writes or quit on a normal launch.
+    private static func launchArgument(_ key: String) -> String? {
+        UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)[key] as? String
     }
 
     /// The on-disk cache, or an in-memory one if the file can't be opened: Kalendar still works, it

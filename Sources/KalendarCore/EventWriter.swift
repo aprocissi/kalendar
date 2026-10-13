@@ -87,7 +87,7 @@ public final class EventWriter {
             updated.account = draft.account
             updated.calendarId = draft.calendarId
         }
-        try? cache.deleteEvent(account: event.account, calendarId: event.calendarId, id: event.id)
+        try? cache.deleteEvent(calendarId: event.calendarId, id: event.id)
         try? cache.upsert([updated])
         engine.onChange()
         Task { await flush() }
@@ -142,7 +142,7 @@ public final class EventWriter {
     public func delete(_ event: EventInstance, scope: Scope) {
         let target = Self.target(event, scope)
         enqueue(queued("DELETE", event, id: target.id, query: ["sendUpdates": Self.sendUpdates(event)]))
-        try? cache.deleteEvent(account: event.account, calendarId: event.calendarId, id: event.id, series: target.series)
+        try? cache.deleteEvent(calendarId: event.calendarId, id: event.id, series: target.series)
         // an invitation someone else organized cannot be restored by Kalendar (§8.2)
         undoableDelete = event.isInvitation ? nil : event
         lastDeleteScope = target.series == nil ? .occurrence : .series
@@ -309,7 +309,7 @@ public final class EventWriter {
         // writes queued behind this one were made against the version it replaced
         if let etag = g?.etag { try? cache.updateQueuedIfMatch(eventId: write.eventId, to: etag) }
         if write.path.hasSuffix("/move") {
-            try? cache.deleteEvent(account: write.account, calendarId: write.calendarId, id: write.eventId,
+            try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId,
                                    series: write.refreshSeries)
         }
         if let series = write.refreshSeries {
@@ -318,7 +318,7 @@ public final class EventWriter {
         }
         guard let g else { return }
         if let placeholder = write.replaces {
-            try? cache.deleteEvent(account: write.account, calendarId: calendarId, id: placeholder)
+            try? cache.deleteEvent(calendarId: calendarId, id: placeholder)
             try? cache.retargetQueued(account: write.account, calendarId: calendarId, from: placeholder, to: g.id)
         }
         if g.isRecurringMaster {
@@ -329,23 +329,34 @@ public final class EventWriter {
         }
     }
 
-    /// The cache's copy of the event after a rejected write: whatever Google has now.
+    /// The cache's copy of the event after a rejected write: whatever Google has now. The optimistic
+    /// delete or edit removed every account's copy (`deleteEvent`), and a rejected write leaves the
+    /// event unchanged in Google, so no account's next incremental sync would return it. Each
+    /// account that caches the calendar refetches its own copy.
     private func refetch(_ write: PendingWrite) async {
         if write.isTask { return await refetchTask(write) }
+        let others = ((try? cache.calendars()) ?? [])
+            .filter { $0.id == write.calendarId && $0.account != write.account }.map(\.account)
+        for account in [write.account] + others {
+            await refetch(write, account: account)
+        }
+    }
+
+    private func refetch(_ write: PendingWrite, account: String) async {
         if let series = write.refreshSeries {
-            await engine.refreshSeries(series, account: write.account, calendarId: write.calendarId)
+            await engine.refreshSeries(series, account: account, calendarId: write.calendarId)
             return
         }
         do {
-            let g = try await accounts.calendarAPI(GoogleCalendarAPI.GoogleEvent.self, for: write.account,
+            let g = try await accounts.calendarAPI(GoogleCalendarAPI.GoogleEvent.self, for: account,
                 GoogleCalendarAPI.getEventRequest(calendarId: write.calendarId, eventId: write.eventId))
-            if let instance = g.instance(account: write.account, calendarId: write.calendarId) {
+            if let instance = g.instance(account: account, calendarId: write.calendarId) {
                 try? cache.upsert([instance])
             } else {
-                try? cache.deleteEvent(account: write.account, calendarId: write.calendarId, id: write.eventId)
+                try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId)
             }
         } catch GoogleCalendarAPI.APIError.notFound {
-            try? cache.deleteEvent(account: write.account, calendarId: write.calendarId, id: write.eventId)
+            try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId)
         } catch {}
     }
 

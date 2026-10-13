@@ -60,3 +60,15 @@ Verified in the running fix build: each case above, plus `swift build -Xswiftc -
 
 ### State after testing
 All test events and tasks are deleted; "test" is hidden again; preferences match the pre-test export byte for byte; the global shortcut is ⌃⌥Space.
+
+## Review: bugs and gaps (branch `bugs-and-gaps`)
+What happened to each finding above, plus those from the #9 review:
+- **Enter with no suggestion list adds the item:** unchanged. Enter adds (§5.4); the Coffee event came from the retype bug fixed in #9.
+- **Typed end equal to the start moved the start:** a timed event may now end when it starts (`displayedEnd` moves the start only when the end is earlier). An all-day end, being exclusive, must still be later. Verified: end stepped from 7:00 PM to 6:00 PM, start stayed 6:00 PM.
+- **Duplicate as Event ignored the Default calendar:** `AgendaModel.defaultCalendar(account:)` now returns the Default calendar setting when it is writable, then the account's primary. New items and Duplicate as Event share it. Verified with Default calendar = "test": the duplicate landed on "test".
+- **No app icon:** `scripts/make-icon.swift` draws `Resources/AppIcon.icns` (accent calendar on navy, macOS grid). Verified in the bundle and on the discard dialog.
+- **Read-only calendars offered writes:** the event menu shows only Copy and Duplicate as Task for them; ⌫ does nothing; the detail popover shows every field disabled. Verified on Columbus Day (Holidays).
+- **⌘T kept the old selection:** `resetToToday` clears it (also on open and Go to Today). Verified.
+- **A deleted event lingered under the second account:** `CalendarCache.deleteEvent` removes the event from every account that caches its calendar. Unit test `testDeleteRemovesEveryAccountsCopy`.
+- **Hotkey after recording:** the recorder no longer unregisters the shortcut; presses are ignored while it listens. A second process holding ⌃⌥Space through Carbon did not reproduce the Fantastical failure on the old build either (both apps receive the press), so this change is not proven to fix that case. Check with Fantastical running.
+- **`-selfTest` from saved defaults:** read only from the launch arguments. Verified: a `selfTest` key in the defaults no longer starts it.

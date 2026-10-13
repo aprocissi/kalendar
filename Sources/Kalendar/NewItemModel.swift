@@ -70,7 +70,6 @@ final class NewItemModel {
            let match = writable.first(where: { $0.summary.lowercased().hasPrefix(q) }) {
             return match
         }
-        if let key = Preferences.shared.defaultCalendar, let c = agenda.calendar(forKey: key), c.isWritable { return c }
         return agenda.defaultCalendar(account: accounts.accounts.first?.email)
     }
 

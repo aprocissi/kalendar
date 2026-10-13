@@ -65,6 +65,9 @@ final class EventEditorModel {
     /// The user's copy of someone else's invitation: Google lets an attendee change only their own
     /// alerts, color and busy/free. Everything else is read-only (§6).
     var isInvitation: Bool { event.isInvitation }
+    /// On a calendar the user can only read (holidays, a shared calendar): Google refuses every
+    /// write, so nothing is editable.
+    var isReadOnlyCalendar: Bool { !agenda.isWritable(event) }
     var isRecurring: Bool { event.recurringEventId != nil }
     var hasChanges: Bool { draft != original }
 
@@ -101,7 +104,13 @@ final class EventEditorModel {
         set {
             let cal = Calendar.current
             draft.end = draft.allDay ? cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: newValue))! : newValue
-            if draft.end <= draft.start { draft.start = draft.allDay ? cal.date(byAdding: .day, value: -1, to: draft.end)! : draft.end.addingTimeInterval(-3600) }
+            // a timed event may end when it starts (Google allows zero length); typing an end equal
+            // to the start must not move the start. An all-day end is exclusive, so it must be later.
+            if draft.allDay {
+                if draft.end <= draft.start { draft.start = cal.date(byAdding: .day, value: -1, to: draft.end)! }
+            } else if draft.end < draft.start {
+                draft.start = draft.end.addingTimeInterval(-3600)
+            }
         }
     }
 

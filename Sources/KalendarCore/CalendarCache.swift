@@ -139,6 +139,12 @@ public final class CalendarCache: @unchecked Sendable {
             try db.alter(table: "task") { t in t.drop(column: "due") }
             try db.create(index: "task_dueDay", on: "task", columns: ["dueDay"])
         }
+        m.registerMigration("v7-event-by-calendar") { db in
+            // deleteEvent matches an event in every account that caches its calendar, so it looks
+            // up by calendar without the account the primary key and event_series start with
+            try db.create(index: "event_calendar_id", on: "event", columns: ["calendarId", "id"])
+            try db.create(index: "event_calendar_series", on: "event", columns: ["calendarId", "recurringEventId"])
+        }
         return m
     }
 
@@ -315,9 +321,11 @@ public final class CalendarCache: @unchecked Sendable {
     }
 
     /// Removes one occurrence, or with `series` every cached instance of that recurring series.
-    public func deleteEvent(account: String, calendarId: String, id: String, series: String? = nil) throws {
+    /// Every account that caches the calendar loses its copy: an event id names the same Google
+    /// event in all of them, and a copy left behind would show until that account's next sync.
+    public func deleteEvent(calendarId: String, id: String, series: String? = nil) throws {
         try db.write { db in
-            let rows = EventInstance.filter(Column("account") == account && Column("calendarId") == calendarId)
+            let rows = EventInstance.filter(Column("calendarId") == calendarId)
             if let series {
                 try rows.filter(Column("recurringEventId") == series || Column("id") == series).deleteAll(db)
             } else {

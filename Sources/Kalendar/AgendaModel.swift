@@ -109,8 +109,10 @@ final class AgendaModel {
 
     // MARK: Navigation
 
-    /// On every open (§4): back to today, the list scrolled to it.
+    /// On every open (§4) and ⌘T: back to today, the list scrolled to it. The row selection goes
+    /// too, so ↓ starts at today rather than at a row scrolled out of view.
     func resetToToday() {
+        selection = nil
         today = calendar.startOfDay(for: Date())
         startList(at: today)
         select(today)
@@ -296,6 +298,10 @@ final class AgendaModel {
 
     func calendar(forKey key: String) -> CalendarInfo? { calendarsByKey[key] }
 
+    /// False for an event on a calendar the user can only read (holidays, a shared calendar): Google
+    /// refuses every write to it. An event whose calendar is not cached counts as writable.
+    func isWritable(_ event: EventInstance) -> Bool { calendar(forKey: event.calendarKey)?.isWritable != false }
+
     func taskList(forKey key: String) -> TaskList? { taskLists.first { $0.key == key } }
 
     /// Where a new task goes: the account's first list, else any.
@@ -303,8 +309,10 @@ final class AgendaModel {
         taskLists.first { $0.account == account } ?? taskLists.first
     }
 
-    /// Where a new event goes: the account's primary calendar, else any writable one.
+    /// Where a new event goes: the Default calendar setting (§12) when it is writable, else the
+    /// account's primary calendar, else any writable one.
     func defaultCalendar(account: String?) -> CalendarInfo? {
+        if let key = prefs.defaultCalendar, let c = calendar(forKey: key), c.isWritable { return c }
         let writable = calendars.filter(\.isWritable)
         return writable.first { $0.account == account && $0.primary } ?? writable.first
     }

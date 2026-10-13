@@ -230,7 +230,6 @@ final class PopoverModel {
         agenda.isVisible = true
         agenda.searchMode = false
         agenda.query = ""
-        agenda.selection = nil
         agenda.resetToToday()
         // a double-clicked day dates only the entry it started
         if input.isEmpty { newItem.defaultDay = nil }
@@ -432,7 +431,7 @@ final class PopoverModel {
     }
 
     /// Duplicate as Event (§7.3): an all-day event on the due day (today when undated), on the
-    /// primary calendar of the task's account.
+    /// Default calendar, else the primary calendar of the task's account.
     func duplicateAsEvent(_ task: TaskItem) {
         guard let calendar = agenda.defaultCalendar(account: task.account) else { return }
         var draft = EventDraft(parsed: ParsedItem(title: task.title, allDayOn: task.due ?? agenda.today),
@@ -442,7 +441,8 @@ final class PopoverModel {
     }
 
     func delete(_ event: EventInstance) {
-        guard let scope = Dialogs.scope(for: event) else { return }
+        // ⌫ on a read-only calendar's event: Google would refuse it
+        guard agenda.isWritable(event), let scope = Dialogs.scope(for: event) else { return }
         writer.delete(event, scope: scope)
         agenda.selection = nil
     }
@@ -457,7 +457,7 @@ final class PopoverModel {
         let original = EventDraft(event, recurrence: nil)
         var draft = original
         change(&draft)
-        guard draft != original, let scope = Dialogs.scope(for: event) else { return }
+        guard draft != original, agenda.isWritable(event), let scope = Dialogs.scope(for: event) else { return }
         // color, busy/free and visibility need none of the series' own data (its times or rule)
         writer.save(event, original: original, draft: draft, scope: scope, series: nil)
     }

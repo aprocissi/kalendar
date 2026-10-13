@@ -222,6 +222,19 @@ private struct EventContextMenu: View {
             Button("Join \(ConferenceDetector.serviceName(for: link)) Meeting") { NSWorkspace.shared.open(url) }
             Divider()
         }
+        // a read-only calendar (holidays, a shared calendar) refuses every write
+        let writable = actions.agenda.isWritable(event)
+        if writable {
+            editMenus
+            Divider()
+        }
+        Button("Copy") { actions.copy(event) }
+        if writable { Button("Duplicate") { actions.writer.duplicate(event) } }
+        Button("Duplicate as Task") { actions.duplicateAsTask(event) }
+        if writable { Button("Delete") { actions.delete(event) } }
+    }
+
+    @ViewBuilder private var editMenus: some View {
         Menu("Color") {
             Button("None") { actions.quickEdit(event) { $0.colorId = nil } }
             ForEach((1...11).map(String.init), id: \.self) { id in
@@ -239,11 +252,6 @@ private struct EventContextMenu: View {
                 }
             }
         }
-        Divider()
-        Button("Copy") { actions.copy(event) }
-        Button("Duplicate") { actions.writer.duplicate(event) }
-        Button("Duplicate as Task") { actions.duplicateAsTask(event) }
-        Button("Delete") { actions.delete(event) }
     }
 }
 
