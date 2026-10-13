@@ -32,6 +32,25 @@ final class EventParsingTests: XCTestCase {
         XCTAssertTrue(i.attendees[1].organizer)
     }
 
+    /// Only an invitation still at needsAction is unanswered; Maybe and the user's own events are not.
+    func testUnansweredInvitation() throws {
+        func instance(response: String, organizer: String) throws -> EventInstance {
+            let e = try event("""
+            {"id":"u","summary":"Review","start":{"dateTime":"2026-10-12T09:00:00-07:00"},"end":{"dateTime":"2026-10-12T10:00:00-07:00"},
+             "attendees":[{"email":"me@example.com","self":true,"responseStatus":"\(response)"},
+                          {"email":"alex@example.com","organizer":true,"responseStatus":"accepted"}],
+             "organizer":{"email":"\(organizer)"\(organizer == "me@example.com" ? ",\"self\":true" : "")}}
+            """)
+            return try XCTUnwrap(e.instance(account: "me@example.com", calendarId: "primary"))
+        }
+        let pending = try instance(response: "needsAction", organizer: "alex@example.com")
+        XCTAssertTrue(pending.isUnanswered)
+        XCTAssertTrue(pending.isTentative)
+        XCTAssertFalse(try instance(response: "tentative", organizer: "alex@example.com").isUnanswered)
+        XCTAssertFalse(try instance(response: "accepted", organizer: "alex@example.com").isUnanswered)
+        XCTAssertFalse(try instance(response: "needsAction", organizer: "me@example.com").isUnanswered)
+    }
+
     /// All-day dates are calendar days: midnight local time, end exclusive.
     func testAllDayEventUsesLocalMidnight() throws {
         var cal = Calendar(identifier: .gregorian)

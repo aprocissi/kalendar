@@ -107,8 +107,14 @@ private struct AllDayPill: View {
             .modifier(EventClicks(event: event, model: model, actions: actions))
             .accessibilityLabel("All day: \(event.summary)")
             .accessibilityAddTraits(.isButton)
-            .accessibilityValue(isSelected ? "selected" : "")
+            .accessibilityValue(eventAccessibilityValue(event, isSelected: isSelected))
     }
+}
+
+/// VoiceOver's value for an event row or all-day pill: an unanswered invitation, then selection.
+private func eventAccessibilityValue(_ event: EventInstance, isSelected: Bool) -> String {
+    [event.isUnanswered ? "not answered" : nil, isSelected ? "selected" : nil]
+        .compactMap { $0 }.joined(separator: ", ")
 }
 
 /// An event row's click (the detail popover, §6) and right-click (§7.1), for timed rows and
@@ -184,8 +190,7 @@ private struct EventRow: View {
         .modifier(EventClicks(event: event, model: model, actions: actions))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityValue([event.isUnanswered ? "not answered" : nil, isSelected ? "selected" : nil]
-            .compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue(eventAccessibilityValue(event, isSelected: isSelected))
         .accessibilityActions {
             if let link = event.conferenceURL.flatMap(URL.init(string:)) {
                 Button("Join \(ConferenceDetector.serviceName(for: link.absoluteString)) Meeting") { NSWorkspace.shared.open(link) }
@@ -202,6 +207,7 @@ private struct EventRow: View {
                 .accessibilityLabel("Declined")
         } else if event.isTentative {
             Circle().strokeBorder(color, lineWidth: 1.5).frame(width: 8, height: 8)
+                .accessibilityLabel(event.selfResponse == "tentative" ? "Maybe" : "")
         } else {
             Circle().fill(color).frame(width: 8, height: 8)
         }
