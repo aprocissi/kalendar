@@ -91,8 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let directory = Self.launchArgument("renderSnapshots") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 Snapshots.render(model: model, settings: { [self] tab in
-                    SettingsView(accounts: self.accounts, cache: self.cache, engine: self.engine, alerts: self.alerts,
-                                 signIn: self.signIn, tab: tab)
+                    SettingsPane(tab: tab, accounts: self.accounts, cache: self.cache, engine: self.engine,
+                                 alerts: self.alerts, signIn: self.signIn)
                 }, to: directory)
                 NSApp.terminate(nil)
             }
