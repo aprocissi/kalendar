@@ -101,7 +101,14 @@ jobs:
           xcrun notarytool submit dist/Kalendar.dmg \
             --apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APP_PASSWORD" \
             --wait --timeout 30m
-          xcrun stapler staple dist/Kalendar.dmg
+          # stapling fetches the ticket from Apple's CloudKit, which has dropped the connection
+          # (error 68, "The network connection was lost") on two releases; a later try succeeds
+          for attempt in 1 2 3 4 5; do
+            xcrun stapler staple dist/Kalendar.dmg && break
+            [ "$attempt" = 5 ] && exit 1
+            echo "stapling failed; retrying in $((attempt * 15)) s"
+            sleep $((attempt * 15))
+          done
           # Gatekeeper's own verdict, so a broken notarization fails here and not on a friend's Mac
           spctl -a -t open --context context:primary-signature -vv dist/Kalendar.dmg
 
