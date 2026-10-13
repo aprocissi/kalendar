@@ -102,7 +102,7 @@ Behaviors:
 
 ### 4.3 Agenda list
 - Sectioned by day. Header: `TODAY 9/21/26` (`accent`), `TOMORROW 9/22/26`, then weekday + date (`WEDNESDAY 9/23/26`). Weather in the header is premium — omit.
-- Row layout: colored dot (calendar color; open circle = tentative/not-accepted; `⊘` = declined) · time range `9:00 – 10:00 AM` (end time shown because "Show when events end" is on) · optional 📹 glyph when a conference URL is detected · title on line 2 · location/URL on line 3 in dimmer text, single‑line, truncated.
+- Row layout: colored dot (calendar color; open circle = tentative/not-accepted; `⊘` = declined) · time range `9:00 – 10:00 AM` (end time shown because "Show when events end" is on) · optional 📹 glyph when a conference URL is detected · title on line 2 · location/URL on line 3 in dimmer text, single‑line, truncated. **[decision]** An invitation the user hasn't answered (not even Maybe) has its title in `muted` as well, so it reads as undecided at a glance.
 - All‑day events are pinned at the top of their day section, directly under the header, as rounded pills filled with the calendar (or event) color, title only, no dot or time (observed: "Columbus Day" in yellow on the US Holidays calendar, 2026‑10‑12).
 - An incomplete task whose due date has passed is shown in today's section, with its due date in `wait` above the title (observed in the reference app: "Sep 28 at 9:00 AM" on 10/12). Kalendar shows the date only ("Sep 28"), because Google Tasks stores no time.
 - Past events today are dimmed (observed: events before now are grey; current/next are full white).

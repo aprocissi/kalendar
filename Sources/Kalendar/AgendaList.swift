@@ -159,7 +159,7 @@ private struct EventRow: View {
                 }
                 Text(event.summary)
                     .uiFont(13)
-                    .foregroundStyle(Theme.text)
+                    .foregroundStyle(event.isUnanswered ? Theme.muted : Theme.text)
                     .lineLimit(2)
                 if let location = event.displayLocation {
                     Text(location)
@@ -184,7 +184,8 @@ private struct EventRow: View {
         .modifier(EventClicks(event: event, model: model, actions: actions))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityValue(isSelected ? "selected" : "")
+        .accessibilityValue([event.isUnanswered ? "not answered" : nil, isSelected ? "selected" : nil]
+            .compactMap { $0 }.joined(separator: ", "))
         .accessibilityActions {
             if let link = event.conferenceURL.flatMap(URL.init(string:)) {
                 Button("Join \(ConferenceDetector.serviceName(for: link.absoluteString)) Meeting") { NSWorkspace.shared.open(link) }

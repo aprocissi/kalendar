@@ -116,6 +116,8 @@ public struct EventInstance: Codable, Equatable, Hashable, FetchableRecord, Pers
     public var isInvitation: Bool { !organizerSelf && !attendees.isEmpty }
     /// Not yet accepted: drawn with an open circle (§4.3).
     public var isTentative: Bool { selfResponse == "needsAction" || selfResponse == "tentative" }
+    /// An invitation the user hasn't answered (not Maybe either): its title is grayed (§4.3).
+    public var isUnanswered: Bool { isInvitation && selfResponse == "needsAction" }
 }
 
 /// An event's popup alerts (§6.1): the calendar's defaults, or its own list of minutes-before.
