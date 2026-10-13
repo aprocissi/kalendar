@@ -207,7 +207,7 @@ private struct EventRow: View {
                 .accessibilityLabel("Declined")
         } else if event.isTentative {
             Circle().strokeBorder(color, lineWidth: 1.5).frame(width: 8, height: 8)
-                .accessibilityLabel(event.selfResponse == "tentative" ? "Maybe" : "")
+                .accessibilityLabel(event.isMaybe ? "Maybe" : "")
         } else {
             Circle().fill(color).frame(width: 8, height: 8)
         }

@@ -118,6 +118,8 @@ public struct EventInstance: Codable, Equatable, Hashable, FetchableRecord, Pers
     public var isTentative: Bool { selfResponse == "needsAction" || selfResponse == "tentative" }
     /// An invitation the user hasn't answered (not Maybe either): its title is grayed (§4.3).
     public var isUnanswered: Bool { isInvitation && selfResponse == "needsAction" }
+    /// Answered Maybe.
+    public var isMaybe: Bool { selfResponse == "tentative" }
 }
 
 /// An event's popup alerts (§6.1): the calendar's defaults, or its own list of minutes-before.
