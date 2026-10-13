@@ -13,44 +13,54 @@ struct EventEditor: View {
     private var readOnly: Bool { model.isInvitation || model.isReadOnlyCalendar }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                header
-                // an invitation keeps color, busy/free and alerts; a read-only calendar keeps nothing
-                fields.disabled(model.isReadOnlyCalendar)
-                if model.expanded || readOnly || !model.draft.attendees.isEmpty { attendees }
-                if model.expanded || readOnly { notes }
-                WriteError(writer: model.writer)
-                if model.isInvitation {
-                    RSVPButtons(current: model.response) { model.respond($0) }.padding(.top, 6)
+        VStack(spacing: 0) {
+            ScrollView { content }
+            // an invitation's answer stays in view however long its guest list and notes run
+            if model.isInvitation {
+                Theme.line.frame(height: 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    WriteError(writer: model.writer)
+                    RSVPButtons(current: model.response) { model.respond($0) }
                 }
-                if !readOnly {
-                    HStack {
-                        Button { model.expanded.toggle() } label: {
-                            Image(systemName: model.expanded ? "chevron.up" : "chevron.down")
-                                .foregroundStyle(Theme.muted)
-                                .frame(width: 24, height: 18)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(model.expanded ? "Fewer fields" : "More fields")
-                        if let onAdd {
-                            Spacer()
-                            Button("Add Event", action: onAdd)
-                                .buttonStyle(.borderedProminent)
-                                .disabled(!model.canAdd)
-                            Spacer()
-                            Color.clear.frame(width: 24, height: 18)
-                        }
-                    }
-                }
+                .padding(16)
             }
-            .padding(16)
         }
         .frame(maxHeight: 640)
         .fixedSize(horizontal: false, vertical: true)
         .background(Theme.background)
         .tint(Theme.accent)
         .uiFont(13)
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            // an invitation keeps color, busy/free and alerts; a read-only calendar keeps nothing
+            fields.disabled(model.isReadOnlyCalendar)
+            if model.expanded || readOnly || !model.draft.attendees.isEmpty { attendees }
+            if model.expanded || readOnly { notes }
+            if !model.isInvitation { WriteError(writer: model.writer) }
+            if !readOnly {
+                HStack {
+                    Button { model.expanded.toggle() } label: {
+                        Image(systemName: model.expanded ? "chevron.up" : "chevron.down")
+                            .foregroundStyle(Theme.muted)
+                            .frame(width: 24, height: 18)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(model.expanded ? "Fewer fields" : "More fields")
+                    if let onAdd {
+                        Spacer()
+                        Button("Add Event", action: onAdd)
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!model.canAdd)
+                        Spacer()
+                        Color.clear.frame(width: 24, height: 18)
+                    }
+                }
+            }
+        }
+        .padding(16)
     }
 
     // MARK: Sections
