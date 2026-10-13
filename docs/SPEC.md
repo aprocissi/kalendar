@@ -56,7 +56,7 @@ The behavior below was specified on 2026‑09‑21 from observation of an existi
 
 ## 4. Popover window
 
-Observed geometry (from the live Mini Window, at 2× Retina): ~320 pt wide, ~600 pt tall by default; content is one vertical stack. Rendered with a small arrow pointing at the status item.
+Observed geometry (from the live Mini Window, at 2× Retina): ~320 pt wide, ~600 pt tall by default; content is one vertical stack. Rendered with a small arrow pointing at the status item. **[decision]** Kalendar is 850 pt tall (the agenda list gets the extra room) and has no arrow: a rounded panel centered under the status item, its top 6 pt below the menu bar, as the system's menu bar extras (Sound, Wi-Fi) sit. It closes like a menu: Esc, the status item, a click elsewhere, or switching apps.
 
 ```
 ┌──────────────────────────────────────┐

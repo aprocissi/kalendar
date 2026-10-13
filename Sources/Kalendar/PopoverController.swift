@@ -1,9 +1,9 @@
-// The Mini Window: a transient NSPopover anchored to the status item (§4), plus the popovers that
-// open beside it: the event detail (§6) and Go to Date.
+// The Mini Window: a panel hung just below the menu bar under the status item (§4), as the
+// system's menu bar extras are (Sound, Wi-Fi), with no arrow. Beside it open the popovers for the
+// event detail (§6) and Go to Date.
 //
-// Those are shown relative to a view *inside* the main popover, which makes them child popovers:
-// AppKit keeps the parent open while the user clicks in the child, and closes the child when the
-// parent closes (spec §13).
+// Those are shown relative to a view inside the panel. AppKit closes a transient popover on a click
+// outside it, and the panel closes them when it closes (spec §13).
 import AppKit
 import KalendarCore
 import SwiftUI
@@ -17,63 +17,108 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         return NSSize(width: (320 * scale).rounded(), height: min((850 * scale).rounded(), room))
     }
     private static var size: NSSize { size(scale: Preferences.shared.textSize.scale) }
+    /// The gap between the menu bar and the panel's top edge, as the system's menu bar extras leave.
+    private static let menuBarGap: CGFloat = 6
 
-    private let popover = NSPopover()
+    private let panel = MiniPanel()
     private var detail: NSPopover?
-    /// The status item button the popover is shown from.
+    /// The status item button the panel opens under.
     private weak var anchor: NSStatusBarButton?
     private let model: PopoverModel
     private var keyMonitor: Any?
-    private var appearanceObservation: NSKeyValueObservation?
-    /// Called each time the popover opens; the app syncs then (§18.3).
+    /// Clicks in other apps and in this app's other windows, which close the panel.
+    private var clickMonitors: [Any] = []
+    private var resignObserver: NSObjectProtocol?
+    /// Called each time the panel opens; the app syncs then (§18.3).
     var onOpen: () -> Void = {}
 
     init(model: PopoverModel) {
         self.model = model
         super.init()
-        popover.behavior = .transient
-        popover.contentSize = Self.size
-        popover.delegate = self
         model.close = { [weak self] in self?.close() }
         model.showChild = { [weak self] view, content, width, edge, shouldClose in
             self?.showChild(relativeTo: view, content: content, width: width, edge: edge, shouldClose: shouldClose) ?? false
         }
-        model.contentView = { [weak self] in self?.popover.contentViewController?.view }
+        model.contentView = { [weak self] in self?.panel.contentViewController?.view }
         model.childShown = { [weak self] in self?.detail != nil }
         model.closeChild = { [weak self] in self?.closeChild() ?? true }
-        popover.contentViewController = NSHostingController(rootView: TextScaled(PopoverRoot(model: model)))
-        // Theme (§12). A popover takes its appearance from the status item it is shown from, which
-        // follows the menu bar rather than NSApp.appearance; the detail popovers inherit this one's.
-        // Observing the app's effective appearance covers both a Theme change and, with System, the
-        // system switching between light and dark.
-        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial]) { [weak self] app, _ in
-            MainActor.assumeIsolated { self?.popover.appearance = app.effectiveAppearance }
-        }
+        panel.contentViewController = NSHostingController(rootView: TextScaled(PopoverRoot(model: model)))
+        panel.round()
     }
 
-    var isShown: Bool { popover.isShown }
+    var isShown: Bool { panel.isVisible }
 
     func toggle(relativeTo button: NSStatusBarButton) {
-        if popover.isShown {
+        if panel.isVisible {
             close()
             return
         }
+        // Pressing the status item makes the app resign active, which already closed the panel; the
+        // item's action on mouse-up is that same click, so it must not open the panel again.
+        if NSApp.currentEvent?.type == .leftMouseUp, let closedAt, Date().timeIntervalSince(closedAt) < 0.5 {
+            return
+        }
         // An accessory app is not active until told to be; without this the text field cannot
-        // become first responder when the popover opens from the global hotkey.
+        // become first responder when the panel opens from the global hotkey.
         NSApp.activate(ignoringOtherApps: true)
         anchor = button
         model.willOpen()
-        popover.contentSize = Self.size
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        Self.paintFrame(of: popover)
-        popover.contentViewController?.view.window?.makeKey()
+        panel.setFrame(frame(under: button), display: true)
+        panel.round()
+        panel.makeKeyAndOrderFront(nil)
+        Self.setHighlight(true, on: button)
         model.focusInput()
-        installKeyMonitor()
+        installMonitors()
         onOpen()
     }
 
+    /// Centered under the status item, its top just below the menu bar, kept on the item's screen.
+    private func frame(under button: NSStatusBarButton) -> NSRect {
+        let size = Self.size
+        guard let window = button.window, let screen = window.screen ?? NSScreen.main else {
+            return NSRect(origin: .zero, size: size)
+        }
+        let item = window.convertToScreen(button.convert(button.bounds, to: nil))
+        let visible = screen.visibleFrame
+        let x = min(max(item.midX - size.width / 2, visible.minX + 8), visible.maxX - 8 - size.width)
+        let top = min(item.minY, visible.maxY) - Self.menuBarGap
+        return NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
+    }
+
+    /// Esc, the status item, a click elsewhere, or switching apps. Stays open while a dialog (§8)
+    /// is up, or when the detail popover's save was cancelled (§8.1).
     func close() {
-        popover.performClose(nil)
+        guard panel.isVisible, NSApp.modalWindow == nil, closeChild() else { return }
+        panel.orderOut(nil)
+        didClose()
+    }
+
+    /// When the panel last closed, for `toggle`.
+    private var closedAt: Date?
+
+    private func didClose() {
+        closedAt = Date()
+        if let anchor { Self.setHighlight(false, on: anchor) }
+        model.agenda.isVisible = false
+        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+        keyMonitor = nil
+        clickMonitors.forEach(NSEvent.removeMonitor)
+        clickMonitors = []
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
+    }
+
+    /// The menu bar item stays highlighted while the panel is open, as a menu's does. The menu bar
+    /// draws that highlight only for an item's own menu or popover, so it is drawn here: a rounded
+    /// tint in the menu bar's text color behind the icon.
+    private static func setHighlight(_ on: Bool, on button: NSStatusBarButton) {
+        button.wantsLayer = true
+        guard let layer = button.layer else { return }
+        layer.cornerRadius = 6
+        layer.cornerCurve = .continuous
+        button.effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer.backgroundColor = on ? NSColor.labelColor.withAlphaComponent(0.2).cgColor : nil
+        }
     }
 
     /// The open child popover's save-on-close, if it is an event's or a task's detail popover.
@@ -121,24 +166,14 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         frame.addSubview(background, positioned: .below, relativeTo: nil)
     }
 
-    /// A transient popover closes on mouse-down outside itself. For a mouse-down on the status item,
-    /// stay open: the item's action fires on mouse-up and `toggle` closes the popover then. Closing
-    /// here as well would let that mouse-up reopen it.
+    /// The detail popover saves on close (§6) and may ask about a recurring event first. A dialog
+    /// (§8) taking key must not close it either: Cancel returns to it.
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
-        // a dialog (§8) taking key must not close the popover behind it: Cancel returns to it
         if NSApp.modalWindow != nil { return false }
-        // the detail popover saves on close (§6) and may ask about a recurring event first
-        if popover === detail {
-            guard shouldClose?() ?? true else { return false }
-            shouldClose = nil
-            return true
-        }
-        guard popover === self.popover else { return true }
-        if let window = anchor?.window, let event = NSApp.currentEvent, event.type == .leftMouseDown,
-           event.window === window {
-            return false
-        }
-        return closeChild()
+        guard popover === detail else { return true }
+        guard shouldClose?() ?? true else { return false }
+        shouldClose = nil
+        return true
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -146,23 +181,72 @@ final class PopoverController: NSObject, NSPopoverDelegate {
             detail = nil
             model.agenda.selection = nil
         }
-        if (notification.object as? NSPopover) === popover {
-            // normally closeChild already ran in popoverShouldClose; if the main popover closed some
-            // other way, the detail must not outlive it, even when its save was cancelled
-            if !closeChild() { dismissChild() }
-            model.agenda.isVisible = false
-            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-            keyMonitor = nil
-        }
     }
 
-    /// Keyboard shortcuts (§11) that the text field would otherwise consume. Arrow keys navigate only
-    /// while the input is empty, so they still move the caret in typed text.
-    private func installKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === popover.contentViewController?.view.window else { return event }
-            return model.handleKey(event) ? nil : event
+    /// Keyboard shortcuts (§11) that the text field would otherwise consume, and the clicks and app
+    /// switches that close the panel as they would a menu.
+    private func installMonitors() {
+        if keyMonitor == nil {
+            // Arrow keys navigate only while the input is empty, so they still move the caret in typed text
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, event.window === panel else { return event }
+                return model.handleKey(event) ? nil : event
+            }
+        }
+        guard clickMonitors.isEmpty else { return }
+        let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: clicks, handler: { [weak self] _ in
+            MainActor.assumeIsolated { self?.close() }
+        }) {
+            clickMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: clicks, handler: { [weak self] event in
+            guard let self else { return event }
+            // the panel, its detail popover, a menu or dialog it opened, and the status item (whose
+            // action closes the panel on mouse-up) keep it open; another window of the app closes it
+            let window = event.window
+            if window !== panel, window !== detail?.contentViewController?.view.window,
+               window !== anchor?.window, window?.level ?? .normal < .popUpMenu, NSApp.modalWindow == nil {
+                close()
+            }
+            return event
+        }) {
+            clickMonitors.append(local)
+        }
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.close() }
+        }
+    }
+}
+
+/// The Mini Window's window: borderless, rounded, shadowed, and able to take keyboard focus for
+/// the input field.
+private final class MiniPanel: NSPanel {
+    init() {
+        super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        level = .statusBar
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        isReleasedWhenClosed = false
+        hidesOnDeactivate = false
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+    }
+
+    override var canBecomeKey: Bool { true }
+
+    /// Rounded like the system's menu bar extras, with a hairline edge that reads on any wallpaper.
+    func round() {
+        guard let view = contentView else { return }
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 12
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
+        view.layer?.borderWidth = 0.5
+        // resolved in the current theme; `toggle` calls this on every open
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            view.layer?.borderColor = NSColor.separatorColor.cgColor
         }
     }
 }
