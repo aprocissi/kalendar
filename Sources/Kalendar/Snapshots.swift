@@ -6,7 +6,7 @@ import SwiftUI
 
 @MainActor
 enum Snapshots {
-    static func render(model: PopoverModel, settings: (Int) -> SettingsView, to directory: String) {
+    static func render(model: PopoverModel, settings: (SettingsTab) -> SettingsPane, to directory: String) {
         let url = URL(fileURLWithPath: directory)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         model.willOpen()
@@ -40,9 +40,9 @@ enum Snapshots {
             write(TaskEditor(model: TaskEditorModel(task: task, agenda: agenda, writer: model.writer)).frame(width: 300),
                   size: NSSize(width: 300, height: 300), appearance: .dark, to: url.appendingPathComponent("task-detail.png"))
         }
-        for tab in 0..<SettingsView.tabCount {
-            write(settings(tab), size: SettingsView.size, appearance: .dark,
-                  to: url.appendingPathComponent("settings-\(tab).png"))
+        for (index, tab) in SettingsTab.allCases.enumerated() {
+            write(settings(tab), size: NSSize(width: SettingsPane.width, height: SettingsPane.maxHeight), fit: true,
+                  appearance: .dark, to: url.appendingPathComponent("settings-\(index).png"))
         }
         for (name, image) in [("date", StatusItemController.glyph(day: 12)),
                               ("icon-only", StatusItemController.glyph(day: nil)),
@@ -58,7 +58,10 @@ enum Snapshots {
         model.agenda.isVisible = false
     }
 
-    private static func write(_ view: some View, size: NSSize, appearance: Preferences.Appearance, to file: URL) {
+    /// With `fit`, `size` is the most room the view gets; after it lays out (and loads what its
+    /// `.task` loads) the image shrinks to the size the view wants, as the Settings window does.
+    private static func write(_ view: some View, size: NSSize, fit: Bool = false, appearance: Preferences.Appearance,
+                              to file: URL) {
         let panel = NSPanel(contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000), size: size),
                             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.appearance = appearance.nsAppearance
@@ -68,6 +71,11 @@ enum Snapshots {
         panel.orderFrontRegardless()
         // let SwiftUI lay out and draw
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        if fit {
+            host.frame.size = host.fittingSize
+            panel.setContentSize(host.frame.size)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        }
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
         host.cacheDisplay(in: host.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: file)
