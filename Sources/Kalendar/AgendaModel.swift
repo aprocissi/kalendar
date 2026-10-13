@@ -229,8 +229,13 @@ final class AgendaModel {
         }
         // open tasks before completed ones in either sort
         let order: (TaskItem, TaskItem) -> Bool = switch taskSort {
-        // undated last; then title, so the order is stable
-        case .dueDate: { ($0.completed ? 1 : 0, $0.dueDay ?? "~", $0.title) < ($1.completed ? 1 : 0, $1.dueDay ?? "~", $1.title) }
+        // open: soonest due first, undated last, then title so the order is stable. Completed: most recent first, so years-old ones
+        // don't fill the top of the list
+        case .dueDate: { a, b in
+            if a.completed != b.completed { return !a.completed }
+            if a.completed { return (b.dueDay ?? "", a.title) < (a.dueDay ?? "", b.title) }
+            return (a.dueDay ?? "~", a.title) < (b.dueDay ?? "~", b.title)
+        }
         case .myOrder: { ($0.completed ? 1 : 0, $0.listKey, $0.position) < ($1.completed ? 1 : 0, $1.listKey, $1.position) }
         }
         taskRows = (byParent[nil] ?? []).sorted(by: order).flatMap { root in

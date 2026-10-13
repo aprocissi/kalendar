@@ -95,6 +95,13 @@ public struct EventInstance: Codable, Equatable, Hashable, FetchableRecord, Pers
     /// The `CalendarInfo.key` of the event's calendar.
     public var calendarKey: String { "\(account)|\(calendarId)" }
     public var isDeclined: Bool { selfResponse == "declined" }
+    /// The location as the list and alerts show it: without its video link, nil when nothing else
+    /// is left. The full text stays in the detail popover and Copy.
+    public var displayLocation: String? {
+        guard let location, !location.isEmpty else { return nil }
+        let shown = ConferenceDetector.removingLinks(from: location)
+        return shown.isEmpty ? nil : shown
+    }
 
     /// The same event on several calendars shows once and alerts once (§4.3, §19).
     public struct DuplicateKey: Hashable {

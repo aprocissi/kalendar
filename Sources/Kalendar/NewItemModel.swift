@@ -170,7 +170,12 @@ final class NewItemModel {
             suggestions = contacts.matching(trigger.query).map(Suggestion.contact)
         case .location:
             let recent = recentLocations(trigger.query).map { Suggestion.place(title: $0, subtitle: "") }
-            suggestions = Array((recent + places.results.map { Suggestion.place(title: $0.title, subtitle: $0.subtitle) }).prefix(8))
+            // Apple Maps ranks by relevance to the region; places whose name starts with what was
+            // typed come first ("Tar": Target before Pike Place Market), otherwise in its order
+            let named = places.results.filter { $0.title.lowercased().hasPrefix(q) }
+            let other = places.results.filter { !$0.title.lowercased().hasPrefix(q) }
+            let maps = (named + other).map { Suggestion.place(title: $0.title, subtitle: $0.subtitle) }
+            suggestions = Array((recent + maps).prefix(8))
         }
         selected = min(selected, max(suggestions.count - 1, 0))
     }

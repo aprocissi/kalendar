@@ -161,7 +161,7 @@ private struct EventRow: View {
                     .uiFont(13)
                     .foregroundStyle(Theme.text)
                     .lineLimit(2)
-                if let location = event.location, !location.isEmpty {
+                if let location = event.displayLocation {
                     Text(location)
                         .uiFont(11)
                         .foregroundStyle(Theme.muted)

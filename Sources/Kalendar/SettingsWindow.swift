@@ -292,7 +292,12 @@ private struct AccountsSettings: View {
                     Text("No Google accounts").foregroundStyle(.secondary)
                 }
                 ForEach(accounts.accounts) { account in
-                    AccountSettingsRow(account: account, accounts: accounts, status: status(for: account.email), signIn: signIn)
+                    let calendars = calendars(for: account.email)
+                    AccountSettingsRow(account: account, accounts: accounts,
+                                       status: status(for: account.email, calendars: calendars),
+                                       color: Color(hex: calendars.first(where: \.primary)?.backgroundColor
+                                           ?? CalendarInfo.fallbackColor),
+                                       signIn: signIn)
                 }
             }
             Button("Add Account…") { signIn(nil) }
@@ -300,12 +305,20 @@ private struct AccountsSettings: View {
         .formStyle(.grouped)
     }
 
-    /// The account's calendar count from the cache, re-read whenever a sync finishes.
-    private func status(for email: String) -> String {
+    /// The account's cached calendars, re-read whenever a sync finishes.
+    private func calendars(for email: String) -> [CalendarInfo] {
         _ = engine.lastSync
-        let n = (try? cache.calendars(account: email).count) ?? 0
+        return (try? cache.calendars(account: email)) ?? []
+    }
+
+    /// The account's calendar and task-list counts.
+    private func status(for email: String, calendars: [CalendarInfo]) -> String {
+        let n = calendars.count
         if n == 0 { return engine.state == .syncing ? "Syncing…" : "No calendars synced yet" }
-        return n == 1 ? "1 calendar" : "\(n) calendars"
+        let lists = (try? cache.taskLists().filter { $0.account == email }.count) ?? 0
+        return [n == 1 ? "1 calendar" : "\(n) calendars",
+                lists == 0 ? nil : lists == 1 ? "1 task list" : "\(lists) task lists"]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -313,10 +326,18 @@ private struct AccountSettingsRow: View {
     let account: AccountStore.Account
     let accounts: AccountStore
     let status: String
+    /// The primary calendar's color.
+    let color: Color
     let signIn: (String?) -> Void
 
     var body: some View {
         HStack {
+            Text(account.email.prefix(1).uppercased())
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(color))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.email)
                 Text(account.needsReauth ? "Needs to sign in again" : status)

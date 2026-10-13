@@ -87,7 +87,9 @@ public final class EventWriter {
             updated.account = draft.account
             updated.calendarId = draft.calendarId
         }
-        try? cache.deleteEvent(calendarId: event.calendarId, id: event.id)
+        // a move takes the event off the calendar for every account that caches it; an edit in place
+        // replaces only this account's copy, and the others refresh at their next sync
+        try? cache.deleteEvent(account: moved ? nil : event.account, calendarId: event.calendarId, id: event.id)
         try? cache.upsert([updated])
         engine.onChange()
         Task { await flush() }
@@ -353,10 +355,11 @@ public final class EventWriter {
             if let instance = g.instance(account: account, calendarId: write.calendarId) {
                 try? cache.upsert([instance])
             } else {
-                try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId)
+                // this account's copy only: another account's refetch may already have restored its own
+                try? cache.deleteEvent(account: account, calendarId: write.calendarId, id: write.eventId)
             }
         } catch GoogleCalendarAPI.APIError.notFound {
-            try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId)
+            try? cache.deleteEvent(account: account, calendarId: write.calendarId, id: write.eventId)
         } catch {}
     }
 

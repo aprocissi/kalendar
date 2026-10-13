@@ -19,6 +19,7 @@ enum Dialogs {
         alert.addButton(withTitle: "Only This Event")
         alert.addButton(withTitle: "All")
         alert.addButton(withTitle: "Cancel")
+        accent(alert)
         switch alert.runModal() {
         case .alertFirstButtonReturn: return .occurrence
         case .alertSecondButtonReturn: return .series
@@ -34,6 +35,12 @@ enum Dialogs {
         alert.informativeText = "Are you sure you want to close and discard your information? You can't undo this action."
         alert.addButton(withTitle: "Discard")
         alert.addButton(withTitle: "Cancel")
+        accent(alert)
         return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// The default button in Kalendar's accent (§8), not the system accent color.
+    private static func accent(_ alert: NSAlert) {
+        alert.buttons.first?.bezelColor = Theme.nsAccent
     }
 }
