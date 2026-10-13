@@ -10,9 +10,11 @@ import SwiftUI
 
 @MainActor
 final class PopoverController: NSObject, NSPopoverDelegate {
-    /// The Mini Window grows with the text size (§12).
+    /// The Mini Window grows with the text size (§12). 850 pt gives the agenda list about twice the
+    /// room it had at 600 (the grid above it is fixed); a screen too short for that gets its full height.
     static func size(scale: CGFloat) -> NSSize {
-        NSSize(width: (320 * scale).rounded(), height: (600 * scale).rounded())
+        let room = (NSScreen.main?.visibleFrame.height ?? 900) - 20
+        return NSSize(width: (320 * scale).rounded(), height: min((850 * scale).rounded(), room))
     }
     private static var size: NSSize { size(scale: Preferences.shared.textSize.scale) }
 
