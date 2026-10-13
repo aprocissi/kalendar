@@ -89,11 +89,13 @@ struct EventEditor: View {
                     .labelsHidden().disabled(readOnly)
             }
             Row("ends") {
-                // no `in: d.start...`: when the start moves earlier, NSDatePicker clamps the new end to
-                // the old minimum and shows that; `displayedEnd` keeps the end after the start instead
+                // `in: d.start...` stops a half-typed end (each segment commits) from moving the start.
+                // When the start moves, NSDatePicker clamps the new end to the old minimum and shows
+                // that, so `.id` rebuilds the picker with the new range.
                 DatePicker("ends", selection: Binding(get: { model.displayedEnd }, set: { model.displayedEnd = $0 }),
-                           displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
+                           in: d.start..., displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
                     .labelsHidden().disabled(readOnly)
+                    .id(d.start)
             }
             if model.expanded && !d.allDay {
                 Row("time zone") { TimeZoneMenu(identifier: $model.draft.timeZone).disabled(readOnly) }

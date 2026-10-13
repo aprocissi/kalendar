@@ -22,6 +22,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private weak var anchor: NSStatusBarButton?
     private let model: PopoverModel
     private var keyMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
     /// Called each time the popover opens; the app syncs then (§18.3).
     var onOpen: () -> Void = {}
 
@@ -39,6 +40,13 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         model.childShown = { [weak self] in self?.detail != nil }
         model.closeChild = { [weak self] in self?.closeChild() ?? true }
         popover.contentViewController = NSHostingController(rootView: TextScaled(PopoverRoot(model: model)))
+        // Theme (§12). A popover takes its appearance from the status item it is shown from, which
+        // follows the menu bar rather than NSApp.appearance; the detail popovers inherit this one's.
+        // Observing the app's effective appearance covers both a Theme change and, with System, the
+        // system switching between light and dark.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial]) { [weak self] app, _ in
+            MainActor.assumeIsolated { self?.popover.appearance = app.effectiveAppearance }
+        }
     }
 
     var isShown: Bool { popover.isShown }
@@ -53,7 +61,6 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         anchor = button
         model.willOpen()
-        applyAppearance()
         popover.contentSize = Self.size
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         Self.paintFrame(of: popover)
@@ -65,12 +72,6 @@ final class PopoverController: NSObject, NSPopoverDelegate {
 
     func close() {
         popover.performClose(nil)
-    }
-
-    /// Theme (§12). A popover takes its appearance from the status item it is shown from, which
-    /// follows the menu bar rather than NSApp.appearance; the detail popovers inherit this one's.
-    func applyAppearance() {
-        popover.appearance = NSApp.effectiveAppearance
     }
 
     /// The open child popover's save-on-close, if it is an event's or a task's detail popover.
@@ -468,8 +469,12 @@ final class PopoverModel {
     /// Returns true when the key was handled (§11).
     func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
-        // Esc from any field, not only the input: a form field would otherwise close the popover
-        if event.keyCode == 53, flags.isEmpty {
+        // Esc (or ⌘.) from any field, not only the input: a form field would otherwise close the
+        // popover. An input method composing text takes Esc to cancel the composition.
+        let cancel = (event.keyCode == 53 && flags.isEmpty)
+            || (flags == [.command] && event.charactersIgnoringModifiers == ".")
+        if cancel {
+            if let editor = event.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
             escape()
             return true
         }
