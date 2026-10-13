@@ -21,14 +21,31 @@ final class SettingsWindowController {
         self.signIn = signIn
     }
 
+    /// A standard macOS settings window: the tabs are toolbar items with icons, and the window
+    /// resizes to each tab's content.
     func show() {
         if window == nil {
-            let hosting = NSHostingController(rootView: SettingsView(accounts: accounts, cache: cache,
-                                                                     engine: engine, alerts: alerts, signIn: signIn))
-            let window = NSWindow(contentViewController: hosting)
-            window.title = "Kalendar Settings"
+            let tabs = NSTabViewController()
+            tabs.tabStyle = .toolbar
+            for tab in SettingsTab.allCases {
+                let pane = NSHostingController(rootView: SettingsPane(
+                    tab: tab, accounts: accounts, cache: cache, engine: engine, alerts: alerts, signIn: signIn))
+                // the window takes each pane's size from its SwiftUI content
+                pane.sizingOptions = .preferredContentSize
+                // the window title follows the selected pane's
+                pane.title = tab.title
+                let item = NSTabViewItem(viewController: pane)
+                item.label = tab.title
+                item.image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.title)
+                tabs.addTabViewItem(item)
+            }
+            let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable]
+            window.toolbarStyle = .preference
             window.isReleasedWhenClosed = false
+            // sizes the window to the first pane before centering; otherwise it centers at its
+            // initial 500x588 frame and then shrinks toward its top-left corner when shown
+            window.layoutIfNeeded()
             window.center()
             self.window = window
         }
@@ -37,30 +54,48 @@ final class SettingsWindowController {
     }
 }
 
-struct SettingsView: View {
+enum SettingsTab: String, CaseIterable {
+    case general = "General", accounts = "Accounts", appearance = "Appearance",
+         eventsAndTasks = "Events & Tasks", calendars = "Calendars"
+
+    var title: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .accounts: "person.crop.circle"
+        case .appearance: "paintbrush"
+        case .eventsAndTasks: "list.bullet"
+        case .calendars: "calendar"
+        }
+    }
+}
+
+/// One tab's content, as tall as its rows. A pane taller than `maxHeight` scrolls (Accounts and
+/// Calendars grow with the accounts).
+struct SettingsPane: View {
+    let tab: SettingsTab
     let accounts: AccountStore
     let cache: CalendarCache
     let engine: SyncEngine
     let alerts: AlertScheduler
     let signIn: (String?) -> Void
-    @State var tab = 0
-    static let size = NSSize(width: 520, height: 460)
-    static let tabCount = 5
+    static let width: CGFloat = 520
+    static let maxHeight: CGFloat = 560
 
     var body: some View {
-        TabView(selection: $tab) {
-            GeneralSettings(alerts: alerts, cache: cache, engine: engine)
-                .tabItem { Label("General", systemImage: "gearshape") }.tag(0)
-            AccountsSettings(accounts: accounts, cache: cache, engine: engine, signIn: signIn)
-                .tabItem { Label("Accounts", systemImage: "person.crop.circle") }.tag(1)
-            AppearanceSettings()
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }.tag(2)
-            EventsAndTasksSettings()
-                .tabItem { Label("Events & Tasks", systemImage: "list.bullet") }.tag(3)
-            CalendarsSettings(cache: cache, engine: engine)
-                .tabItem { Label("Calendars", systemImage: "calendar") }.tag(4)
+        Group {
+            switch tab {
+            case .general: GeneralSettings(alerts: alerts, cache: cache, engine: engine)
+            case .accounts: AccountsSettings(accounts: accounts, cache: cache, engine: engine, signIn: signIn)
+            case .appearance: AppearanceSettings()
+            case .eventsAndTasks: EventsAndTasksSettings()
+            case .calendars: CalendarsSettings(cache: cache, engine: engine)
+            }
         }
-        .frame(width: Self.size.width, height: Self.size.height)
+        .frame(width: Self.width)
+        .frame(maxHeight: Self.maxHeight)
+        .fixedSize(horizontal: false, vertical: true)
         .tint(Theme.accent)
     }
 }
