@@ -127,9 +127,14 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     /// Closes the open child popover, saving an event's edits first. False when the user cancelled
     /// the recurring-event question (§8.1), so everything stays open.
     private func closeChild() -> Bool {
-        if let shouldClose, !shouldClose() { return false }
+        guard saveChild() else { return false }
         dismissChild()
         return true
+    }
+
+    /// Saves the open child's edits. False when the user cancelled the recurring-event question.
+    private func saveChild() -> Bool {
+        shouldClose?() ?? true
     }
 
     /// Closes the child popover without asking; any unsaved edits are dropped.
@@ -147,7 +152,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
                            shouldClose: (() -> Bool)?) -> Bool {
         pendingChildDismiss = false
         if let detail, detail.isShown {
-            if let current = self.shouldClose, !current() { return false }
+            guard saveChild() else { return false }
             // The tap that called this can be running in the previous content's view (a row of the
             // Notifications popover). That view is released on the next turn of the run loop.
             let previous = detail.contentViewController
