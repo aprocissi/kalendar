@@ -106,7 +106,11 @@ final class EventEditorModel {
             draft.end = draft.allDay ? cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: newValue))! : newValue
             // a timed event may end when it starts (Google allows zero length); typing an end equal
             // to the start must not move the start. An all-day end is exclusive, so it must be later.
-            if draft.allDay ? draft.end <= draft.start : draft.end < draft.start { draft.start = draft.allDay ? cal.date(byAdding: .day, value: -1, to: draft.end)! : draft.end.addingTimeInterval(-3600) }
+            if draft.allDay {
+                if draft.end <= draft.start { draft.start = cal.date(byAdding: .day, value: -1, to: draft.end)! }
+            } else if draft.end < draft.start {
+                draft.start = draft.end.addingTimeInterval(-3600)
+            }
         }
     }
 

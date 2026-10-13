@@ -139,6 +139,12 @@ public final class CalendarCache: @unchecked Sendable {
             try db.alter(table: "task") { t in t.drop(column: "due") }
             try db.create(index: "task_dueDay", on: "task", columns: ["dueDay"])
         }
+        m.registerMigration("v7-event-by-calendar") { db in
+            // deleteEvent matches an event in every account that caches its calendar, so it looks
+            // up by calendar without the account the primary key and event_series start with
+            try db.create(index: "event_calendar_id", on: "event", columns: ["calendarId", "id"])
+            try db.create(index: "event_calendar_series", on: "event", columns: ["calendarId", "recurringEventId"])
+        }
         return m
     }
 
