@@ -172,9 +172,8 @@ final class NewItemModel {
             let recent = recentLocations(trigger.query).map { Suggestion.place(title: $0, subtitle: "") }
             // Apple Maps ranks by relevance to the region; places whose name starts with what was
             // typed come first ("Tar": Target before Pike Place Market), otherwise in its order
-            let (named, other) = places.results.reduce(into: ([MKLocalSearchCompletion](), [MKLocalSearchCompletion]())) {
-                if $1.title.lowercased().hasPrefix(q) { $0.0.append($1) } else { $0.1.append($1) }
-            }
+            let named = places.results.filter { $0.title.lowercased().hasPrefix(q) }
+            let other = places.results.filter { !$0.title.lowercased().hasPrefix(q) }
             let maps = (named + other).map { Suggestion.place(title: $0.title, subtitle: $0.subtitle) }
             suggestions = Array((recent + maps).prefix(8))
         }

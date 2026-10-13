@@ -260,7 +260,8 @@ private struct AccountsSettings: View {
                     let calendars = calendars(for: account.email)
                     AccountSettingsRow(account: account, accounts: accounts,
                                        status: status(for: account.email, calendars: calendars),
-                                       color: calendars.first(where: \.primary)?.backgroundColor ?? CalendarInfo.fallbackColor,
+                                       color: Color(hex: calendars.first(where: \.primary)?.backgroundColor
+                                           ?? CalendarInfo.fallbackColor),
                                        signIn: signIn)
                 }
             }
@@ -290,8 +291,8 @@ private struct AccountSettingsRow: View {
     let account: AccountStore.Account
     let accounts: AccountStore
     let status: String
-    /// The primary calendar's color, as hex.
-    let color: String
+    /// The primary calendar's color.
+    let color: Color
     let signIn: (String?) -> Void
 
     var body: some View {
@@ -300,7 +301,7 @@ private struct AccountSettingsRow: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(Color(hex: color)))
+                .background(Circle().fill(color))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.email)
