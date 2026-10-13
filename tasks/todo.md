@@ -72,3 +72,10 @@ What happened to each finding above, plus those from the #9 review:
 - **A deleted event lingered under the second account:** `CalendarCache.deleteEvent` removes the event from every account that caches its calendar. Unit test `testDeleteRemovesEveryAccountsCopy`.
 - **Hotkey after recording:** the recorder no longer unregisters the shortcut; presses are ignored while it listens. A second process holding ⌃⌥Space through Carbon did not reproduce the Fantastical failure on the old build either (both apps receive the press), so this change is not proven to fix that case. Check with Fantastical running.
 - **`-selfTest` from saved defaults:** read only from the launch arguments. Verified: a `selfTest` key in the defaults no longer starts it.
+
+## Review: menu bar panel and detail popover (#14–#17)
+- **#14 Mini Window as a panel.** No arrow: a rounded panel centered under the status item, 6 pt below the menu bar, like Sound and Wi-Fi. Closes on Esc, the status item, a click elsewhere or an app switch; a §8 dialog keeps it open. The status item shows a drawn highlight while open. Pressing the item makes the app resign, which closed the panel before the item's own mouse-up; a close within 0.5 s before that mouse-up now ends the click there.
+- **#15 RSVP state.** The current answer is an accent pill with a check and sends nothing when chosen again.
+- **#16 Detail in place.** Opening another item reuses the open detail popover (saving the previous item first). Clicks in the panel defer the transient close until the click ends, whether AppKit asks on mouse-down or mouse-up, or a control consumes the mouse-up.
+- **#17 Pinned RSVP.** An invitation's Maybe / Decline / Accept and its write error sit in a footer below the scrolling body.
+- Verified each in the running app with real clicks; no RSVP was sent and no event was written while testing.
