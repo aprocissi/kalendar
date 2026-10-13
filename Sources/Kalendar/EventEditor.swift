@@ -369,6 +369,8 @@ private struct RepeatEndMenu: View {
                 DatePicker("repeat until", selection: Binding(get: { day }, set: { set(.until($0)) }),
                            in: model.draft.start..., displayedComponents: .date)
                     .labelsHidden()
+                    // the range changes with the start; rebuilt like the "ends" picker so it shows the new one
+                    .id(model.draft.start)
             case .count(let n):
                 Stepper("\(n) times", value: Binding(get: { n }, set: { set(.count($0)) }), in: 1...999)
             case .never:
