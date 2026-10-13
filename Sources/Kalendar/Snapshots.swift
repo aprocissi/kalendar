@@ -72,8 +72,7 @@ enum Snapshots {
         // let SwiftUI lay out and draw
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         if fit {
-            host.frame.size = host.fittingSize
-            panel.setContentSize(host.frame.size)
+            panel.setContentSize(host.fittingSize)
             RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         }
         guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }

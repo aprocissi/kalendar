@@ -42,8 +42,10 @@ final class SettingsWindowController {
             let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable]
             window.toolbarStyle = .preference
-            window.toolbar?.allowsUserCustomization = false
             window.isReleasedWhenClosed = false
+            // sizes the window to the first pane before centering; otherwise it centers at its
+            // initial 500x588 frame and then shrinks toward its top-left corner when shown
+            window.layoutIfNeeded()
             window.center()
             self.window = window
         }
@@ -76,8 +78,8 @@ enum SettingsTab: CaseIterable {
     }
 }
 
-/// One tab's content, as tall as its rows. Calendars, whose length depends on the accounts,
-/// scrolls past `maxHeight`.
+/// One tab's content, as tall as its rows. A pane taller than `maxHeight` scrolls (Accounts and
+/// Calendars grow with the accounts).
 struct SettingsPane: View {
     let tab: SettingsTab
     let accounts: AccountStore
