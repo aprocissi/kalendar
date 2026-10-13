@@ -22,7 +22,7 @@ struct EventEditor: View {
                 if model.expanded || readOnly { notes }
                 WriteError(writer: model.writer)
                 if model.isInvitation {
-                    RSVPButtons { model.respond($0) }.padding(.top, 6)
+                    RSVPButtons(current: model.response) { model.respond($0) }.padding(.top, 6)
                 }
                 if !readOnly {
                     HStack {
@@ -484,16 +484,31 @@ private struct AddInvitee: View {
 
 /// Maybe at the leading edge, Decline and Accept trailing (§6, §6.2).
 struct RSVPButtons: View {
+    /// The user's current response ("accepted", "declined", "tentative"); nil or "needsAction" when
+    /// they haven't answered.
+    var current: String?
     let respond: (String) -> Void
 
     var body: some View {
         HStack {
-            Button("Maybe") { respond("tentative") }
+            button("Maybe", "tentative")
             Spacer()
-            Button("Decline") { respond("declined") }
-            Button("Accept") { respond("accepted") }
+            button("Decline", "declined")
+            button("Accept", "accepted")
         }
-        .buttonStyle(.bordered)
+    }
+
+    /// The current answer is an accent pill with a check; choosing it again sends nothing.
+    @ViewBuilder private func button(_ title: String, _ response: String) -> some View {
+        if response == current {
+            Button { } label: { Label(title, systemImage: "checkmark") }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
+                .accessibilityValue("selected")
+        } else {
+            Button(title) { respond(response) }
+                .buttonStyle(.bordered)
+        }
     }
 }
 

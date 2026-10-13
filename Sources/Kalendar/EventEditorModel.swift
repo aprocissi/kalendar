@@ -15,12 +15,16 @@ final class EventEditorModel {
     /// The master event, loaded for a recurring occurrence (rule, times, etag).
     private(set) var series: EventWriter.Series?
     var expanded = false
+    /// The user's answer to an invitation, shown on the RSVP buttons: the cached one, then whatever
+    /// they choose here.
+    private(set) var response: String?
     /// The new-item form: `draft` follows the parsed input until it is added (§5).
     let isNew: Bool
 
     init(event: EventInstance, agenda: AgendaModel, writer: EventWriter) {
         isNew = false
         self.event = event
+        response = event.selfResponse
         self.agenda = agenda
         self.writer = writer
         let draft = EventDraft(event, recurrence: nil)
@@ -94,6 +98,7 @@ final class EventEditorModel {
     func respond(_ response: String) {
         guard let scope = Dialogs.scope(for: event) else { return }
         writer.respond(event, response: response, scope: scope)
+        self.response = response
     }
 
     // MARK: Field helpers
