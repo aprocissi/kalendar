@@ -230,7 +230,6 @@ final class PopoverModel {
         agenda.isVisible = true
         agenda.searchMode = false
         agenda.query = ""
-        agenda.selection = nil
         agenda.resetToToday()
         // a double-clicked day dates only the entry it started
         if input.isEmpty { newItem.defaultDay = nil }
@@ -443,8 +442,7 @@ final class PopoverModel {
 
     func delete(_ event: EventInstance) {
         // ⌫ on a read-only calendar's event: Google would refuse it
-        guard agenda.calendar(forKey: event.calendarKey)?.isWritable != false,
-              let scope = Dialogs.scope(for: event) else { return }
+        guard agenda.isWritable(event), let scope = Dialogs.scope(for: event) else { return }
         writer.delete(event, scope: scope)
         agenda.selection = nil
     }

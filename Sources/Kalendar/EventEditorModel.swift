@@ -67,7 +67,7 @@ final class EventEditorModel {
     var isInvitation: Bool { event.isInvitation }
     /// On a calendar the user can only read (holidays, a shared calendar): Google refuses every
     /// write, so nothing is editable.
-    var isReadOnlyCalendar: Bool { agenda.calendar(forKey: event.calendarKey)?.isWritable == false }
+    var isReadOnlyCalendar: Bool { !agenda.isWritable(event) }
     var isRecurring: Bool { event.recurringEventId != nil }
     var hasChanges: Bool { draft != original }
 

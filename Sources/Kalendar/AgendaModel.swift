@@ -298,6 +298,10 @@ final class AgendaModel {
 
     func calendar(forKey key: String) -> CalendarInfo? { calendarsByKey[key] }
 
+    /// False for an event on a calendar the user can only read (holidays, a shared calendar): Google
+    /// refuses every write to it. An event whose calendar is not cached counts as writable.
+    func isWritable(_ event: EventInstance) -> Bool { calendar(forKey: event.calendarKey)?.isWritable != false }
+
     func taskList(forKey key: String) -> TaskList? { taskLists.first { $0.key == key } }
 
     /// Where a new task goes: the account's first list, else any.

@@ -223,7 +223,7 @@ private struct EventContextMenu: View {
             Divider()
         }
         // a read-only calendar (holidays, a shared calendar) refuses every write
-        let writable = actions.agenda.calendar(forKey: event.calendarKey)?.isWritable ?? false
+        let writable = actions.agenda.isWritable(event)
         if writable {
             editMenus
             Divider()

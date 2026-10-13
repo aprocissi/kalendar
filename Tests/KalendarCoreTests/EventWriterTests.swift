@@ -252,6 +252,28 @@ final class EventWriterTests: XCTestCase {
         XCTAssertEqual(writer.error, "Couldn't save “Nope”: Google returned an error (HTTP 403).")
         XCTAssertEqual(try cached()?.summary, "Standup")
     }
+
+    /// The optimistic delete removed both accounts' copies of a shared calendar's event. Google
+    /// rejects it, so the event is unchanged and no incremental sync would return it: both
+    /// accounts refetch their copy.
+    func testRejectedDeleteRestoresEveryAccountsCopy() async throws {
+        try cache.replaceCalendars([
+            CalendarInfo(account: "work@example.com", id: "work", summary: "Work", backgroundColor: "#000000",
+                         accessRole: "owner", selected: true, primary: true),
+            CalendarInfo(account: "work@example.com", id: "primary", summary: "Me", backgroundColor: "#000000",
+                         accessRole: "reader", selected: true, primary: false),
+        ], account: "work@example.com")
+        let e = event()
+        var shared = e
+        shared.account = "work@example.com"
+        try cache.upsert([e, shared])
+        google.handler = { r, _ in r.httpMethod == "DELETE" ? (403, "{}") : (200, self.serverEvent("e1", title: "Standup")) }
+        writer.delete(e, scope: .occurrence)
+        await writer.flush()
+        XCTAssertNotNil(try cached())
+        XCTAssertNotNil(try cache.event(account: "work@example.com", calendarId: "primary", id: "e1"))
+    }
+
     func testServerErrorKeepsTheWriteQueued() async throws {
         let e = event()
         try cache.upsert([e])
