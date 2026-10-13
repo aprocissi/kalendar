@@ -74,6 +74,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 MainActor.assumeIsolated { prefs.systemCalendarChanged() }
             }
         }
+        // `--args -selfTest <file>` runs the Google write paths and quits (SelfTest.swift).
+        // Before the sync triggers, so no background sync overlaps the writes it checks.
+        if let report = UserDefaults.standard.string(forKey: "selfTest") {
+            Task { [self] in
+                var test = SelfTest(accounts: accounts, cache: cache, engine: engine, writer: writer)
+                await test.run(reportTo: report)
+                NSApp.terminate(nil)
+            }
+            return
+        }
         _ = UpdaterController.shared   // starts Sparkle's scheduled checks; `shared` is lazy
         LaunchAtLogin.enableOnFirstLaunch()
         startSyncTriggers()

@@ -290,6 +290,11 @@ public final class CalendarCache: @unchecked Sendable {
 
     // MARK: Edits (milestone 3)
 
+    /// Every cached instance on one calendar, shown or hidden.
+    public func events(account: String, calendarId: String) throws -> [EventInstance] {
+        try db.read { try EventInstance.filter(Column("account") == account && Column("calendarId") == calendarId).fetchAll($0) }
+    }
+
     public func event(account: String, calendarId: String, id: String) throws -> EventInstance? {
         try db.read { try EventInstance.fetchOne($0, key: ["account": account, "calendarId": calendarId, "id": id]) }
     }
