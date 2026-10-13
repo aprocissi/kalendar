@@ -125,7 +125,8 @@ final class Preferences {
         onChange(key)
     }
 
-    /// Theme (§12): the whole app follows it, the popovers and Settings included.
+    /// Theme (§12): Settings follows NSApp.appearance; the popover copies NSApp.effectiveAppearance
+    /// (PopoverController), because a popover otherwise follows the menu bar.
     func applyAppearance() {
         NSApp.appearance = appearance.nsAppearance
     }
