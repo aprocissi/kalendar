@@ -127,9 +127,14 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     /// Closes the open child popover, saving an event's edits first. False when the user cancelled
     /// the recurring-event question (§8.1), so everything stays open.
     private func closeChild() -> Bool {
-        if let shouldClose, !shouldClose() { return false }
+        guard saveChild() else { return false }
         dismissChild()
         return true
+    }
+
+    /// Saves the open child's edits. False when the user cancelled the recurring-event question.
+    private func saveChild() -> Bool {
+        shouldClose?() ?? true
     }
 
     /// Closes the child popover without asking; any unsaved edits are dropped.
@@ -139,20 +144,39 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         detail = nil
     }
 
+    /// Opens a child popover beside `view`. With one already open, its edits are saved and the same
+    /// popover takes the new content and moves to the new anchor, so going from item to item
+    /// updates it in place instead of closing and reopening it.
     @discardableResult
     private func showChild(relativeTo view: NSView, content: AnyView, width: CGFloat, edge: NSRectEdge,
                            shouldClose: (() -> Bool)?) -> Bool {
+        pendingChildDismiss = false
+        if let detail, detail.isShown {
+            guard saveChild() else { return false }
+            // The tap that called this can be running in the previous content's view (a row of the
+            // Notifications popover). That view is released on the next turn of the run loop.
+            let previous = detail.contentViewController
+            detail.contentViewController = Self.hosting(content, width: width)
+            DispatchQueue.main.async { withExtendedLifetime(previous) {} }
+            detail.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
+            self.shouldClose = shouldClose
+            return true
+        }
         guard closeChild() else { return false }
         let child = NSPopover()
         child.behavior = .transient
         child.delegate = self
-        child.contentViewController = NSHostingController(rootView: TextScaled(content.frame(width: width)))
+        child.contentViewController = Self.hosting(content, width: width)
         // AppKit flips to the opposite edge when there is no room
         child.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
         Self.paintFrame(of: child)
         detail = child
         self.shouldClose = shouldClose
         return true
+    }
+
+    private static func hosting(_ content: AnyView, width: CGFloat) -> NSViewController {
+        NSHostingController(rootView: TextScaled(content.frame(width: width)))
     }
 
     /// NSPopover draws its own frame, arrow included, in the system popover material. Putting a
@@ -171,9 +195,58 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         if NSApp.modalWindow != nil { return false }
         guard popover === detail else { return true }
+        // A click in the panel may be on another row, whose tap moves this popover to that item.
+        // Let the click finish; close only if it opened nothing.
+        if let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp,
+           event.window === panel {
+            deferChildDismiss(afterMouseUp: event.type == .leftMouseDown)
+            return false
+        }
         guard shouldClose?() ?? true else { return false }
         shouldClose = nil
         return true
+    }
+
+    /// Set by a click in the panel while a child popover is open; cleared when that click opens
+    /// another item in it.
+    private var pendingChildDismiss = false
+
+    /// AppKit asks on mouse-down or on mouse-up. A row's tap gesture runs on the mouse-up, after
+    /// this, so the check waits for that mouse-up and then one turn of the run loop.
+    private func deferChildDismiss(afterMouseUp: Bool) {
+        pendingChildDismiss = true
+        guard afterMouseUp else { return checkChildDismiss() }
+        var monitor: Any?
+        let mouseUp = { [weak self] in
+            guard let installed = monitor else { return }
+            NSEvent.removeMonitor(installed)
+            monitor = nil
+            self?.checkChildDismiss()
+        }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            mouseUp()
+            return event
+        }
+        // A button, a text field, or a menu tracks the mouse itself and takes the mouse-up, so the
+        // monitor never receives it. This block runs in the default mode, after any such tracking
+        // ends. With the button up and no mouse-up waiting in the queue, the mouse-up was taken.
+        RunLoop.main.perform(inModes: [.default]) {
+            MainActor.assumeIsolated {
+                guard NSEvent.pressedMouseButtons & 1 == 0,
+                      NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default,
+                                      dequeue: false) == nil else { return }
+                mouseUp()
+            }
+        }
+    }
+
+    /// Closes the child popover one turn of the run loop from now, unless a click opened another item.
+    private func checkChildDismiss() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, pendingChildDismiss else { return }
+            pendingChildDismiss = false
+            _ = closeChild()
+        }
     }
 
     func popoverDidClose(_ notification: Notification) {
