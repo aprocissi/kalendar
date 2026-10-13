@@ -148,7 +148,11 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         pendingChildDismiss = false
         if let detail, detail.isShown {
             if let current = self.shouldClose, !current() { return false }
-            detail.contentViewController = NSHostingController(rootView: TextScaled(content.frame(width: width)))
+            // The tap that called this can be running in the previous content's view (a row of the
+            // Notifications popover). That view is released on the next turn of the run loop.
+            let previous = detail.contentViewController
+            detail.contentViewController = Self.hosting(content, width: width)
+            DispatchQueue.main.async { withExtendedLifetime(previous) {} }
             detail.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
             self.shouldClose = shouldClose
             return true
@@ -157,13 +161,17 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         let child = NSPopover()
         child.behavior = .transient
         child.delegate = self
-        child.contentViewController = NSHostingController(rootView: TextScaled(content.frame(width: width)))
+        child.contentViewController = Self.hosting(content, width: width)
         // AppKit flips to the opposite edge when there is no room
         child.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
         Self.paintFrame(of: child)
         detail = child
         self.shouldClose = shouldClose
         return true
+    }
+
+    private static func hosting(_ content: AnyView, width: CGFloat) -> NSViewController {
+        NSHostingController(rootView: TextScaled(content.frame(width: width)))
     }
 
     /// NSPopover draws its own frame, arrow included, in the system popover material. Putting a
@@ -198,23 +206,41 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     /// another item in it.
     private var pendingChildDismiss = false
 
-    /// AppKit asks on mouse-down or on mouse-up; a row's tap gesture runs on the mouse-up, after
+    /// AppKit asks on mouse-down or on mouse-up. A row's tap gesture runs on the mouse-up, after
     /// this, so the check waits for that mouse-up and then one turn of the run loop.
     private func deferChildDismiss(afterMouseUp: Bool) {
         pendingChildDismiss = true
-        let check = { [weak self] in
-            DispatchQueue.main.async {
-                guard let self, self.pendingChildDismiss else { return }
-                self.pendingChildDismiss = false
-                _ = self.closeChild()
+        guard afterMouseUp else { return checkChildDismiss() }
+        var monitor: Any?
+        let mouseUp = { [weak self] in
+            guard let installed = monitor else { return }
+            NSEvent.removeMonitor(installed)
+            monitor = nil
+            self?.checkChildDismiss()
+        }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            mouseUp()
+            return event
+        }
+        // A button, a text field, or a menu tracks the mouse itself and takes the mouse-up, so the
+        // monitor never receives it. This block runs in the default mode, after any such tracking
+        // ends. With the button up and no mouse-up waiting in the queue, the mouse-up was taken.
+        RunLoop.main.perform(inModes: [.default]) {
+            MainActor.assumeIsolated {
+                guard NSEvent.pressedMouseButtons & 1 == 0,
+                      NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default,
+                                      dequeue: false) == nil else { return }
+                mouseUp()
             }
         }
-        guard afterMouseUp else { return check() }
-        var monitor: Any?
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            check()
-            return event
+    }
+
+    /// Closes the child popover one turn of the run loop from now, unless a click opened another item.
+    private func checkChildDismiss() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, pendingChildDismiss else { return }
+            pendingChildDismiss = false
+            _ = closeChild()
         }
     }
 

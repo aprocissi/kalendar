@@ -82,7 +82,7 @@ private struct InvitationRow: View {
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
-            // the Notifications popover closes, so the detail opens beside the Mini Window (§6.2)
+            // the Notifications popover shows the detail instead, beside the Mini Window (§6.2)
             .onTapGesture { model.openEvent(event, anchor: nil) }
             RSVPButtons { model.respond(event, $0) }
         }
