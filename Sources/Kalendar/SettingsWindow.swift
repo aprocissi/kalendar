@@ -54,18 +54,11 @@ final class SettingsWindowController {
     }
 }
 
-enum SettingsTab: CaseIterable {
-    case general, accounts, appearance, eventsAndTasks, calendars
+enum SettingsTab: String, CaseIterable {
+    case general = "General", accounts = "Accounts", appearance = "Appearance",
+         eventsAndTasks = "Events & Tasks", calendars = "Calendars"
 
-    var title: String {
-        switch self {
-        case .general: "General"
-        case .accounts: "Accounts"
-        case .appearance: "Appearance"
-        case .eventsAndTasks: "Events & Tasks"
-        case .calendars: "Calendars"
-        }
-    }
+    var title: String { rawValue }
 
     var symbol: String {
         switch self {
