@@ -143,6 +143,22 @@ final class EventWriterTests: XCTestCase {
         XCTAssertNil(try cache.event(account: "work@example.com", calendarId: "primary", id: "e1"))
     }
 
+    /// An edit in place replaces only the editing account's copy: the other account's copy stays
+    /// (stale until its sync) rather than vanishing from a list that shows only that account's.
+    func testEditKeepsOtherAccountsCopy() async throws {
+        let e = event()
+        var shared = e
+        shared.account = "work@example.com"
+        try cache.upsert([e, shared])
+        google.handler = { _, _ in (200, self.serverEvent("e1", title: "Standup (moved)")) }
+        let original = EventDraft(e, recurrence: nil)
+        var draft = original
+        draft.summary = "Standup (moved)"
+        writer.save(e, original: original, draft: draft, scope: .occurrence, series: nil)
+        XCTAssertEqual(try cached()?.summary, "Standup (moved)")
+        XCTAssertNotNil(try cache.event(account: "work@example.com", calendarId: "primary", id: "e1"))
+    }
+
     /// If Google won't un-cancel the event, undo inserts a copy without its guests (§8.2).
     func testUndoFallsBackToInsertingACopy() async throws {
         let e = event()

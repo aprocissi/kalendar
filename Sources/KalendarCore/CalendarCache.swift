@@ -321,11 +321,13 @@ public final class CalendarCache: @unchecked Sendable {
     }
 
     /// Removes one occurrence, or with `series` every cached instance of that recurring series.
-    /// Every account that caches the calendar loses its copy: an event id names the same Google
-    /// event in all of them, and a copy left behind would show until that account's next sync.
-    public func deleteEvent(calendarId: String, id: String, series: String? = nil) throws {
+    /// Without `account`, every account that caches the calendar loses its copy: an event id names
+    /// the same Google event in all of them, and a copy left behind would show until that account's
+    /// next sync. With `account`, only that account's copy goes.
+    public func deleteEvent(account: String? = nil, calendarId: String, id: String, series: String? = nil) throws {
         try db.write { db in
-            let rows = EventInstance.filter(Column("calendarId") == calendarId)
+            var rows = EventInstance.filter(Column("calendarId") == calendarId)
+            if let account { rows = rows.filter(Column("account") == account) }
             if let series {
                 try rows.filter(Column("recurringEventId") == series || Column("id") == series).deleteAll(db)
             } else {
