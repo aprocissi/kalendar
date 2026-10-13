@@ -72,8 +72,13 @@ private struct DayCell: View {
                     }
                 }
             HStack(spacing: 2) {
-                ForEach(Array(marks.colors.prefix(4).enumerated()), id: \.offset) { _, color in
+                // up to four dots; a busier day shows three and a + so it reads as more than four
+                let more = marks.colors.count > 4
+                ForEach(Array(marks.colors.prefix(more ? 3 : 4).enumerated()), id: \.offset) { _, color in
                     Circle().fill(color).frame(width: 4, height: 4)
+                }
+                if more {
+                    Image(systemName: "plus").uiFont(6, weight: .bold).foregroundStyle(Theme.muted)
                 }
                 if marks.tasks {
                     Image(systemName: "checkmark").uiFont(6, weight: .bold).foregroundStyle(Theme.muted)

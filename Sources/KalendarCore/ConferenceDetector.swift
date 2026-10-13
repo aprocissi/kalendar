@@ -26,6 +26,22 @@ public enum ConferenceDetector {
         return nil
     }
 
+    /// `text` without its video links and the separators they leave behind: "Room 4,
+    /// https://zoom.us/j/1" is "Room 4". The 📹 glyph and Join already stand for the link.
+    public static func removingLinks(from text: String) -> String {
+        var out = text
+        for regex in regexes {
+            out = regex.stringByReplacingMatches(in: out, range: NSRange(out.startIndex..., in: out), withTemplate: "")
+        }
+        // a location with no link keeps its own punctuation
+        guard out != text else { return text }
+        let separators = CharacterSet(charactersIn: ",;·|").union(.whitespacesAndNewlines)
+        return out.components(separatedBy: CharacterSet(charactersIn: ",;\n"))
+            .map { $0.trimmingCharacters(in: separators) }
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+    }
+
     /// "Zoom", "Google Meet", … for "Join Zoom Meeting" (§7.1).
     public static func serviceName(for url: String) -> String {
         let host = URL(string: url)?.host?.lowercased() ?? ""

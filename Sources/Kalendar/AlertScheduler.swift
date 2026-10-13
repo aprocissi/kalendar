@@ -110,7 +110,9 @@ final class AlertScheduler: NSObject, UNUserNotificationCenterDelegate {
         let c = UNMutableNotificationContent()
         c.title = event.summary
         let time = event.allDay ? "All day" : Formatting.timeRange(event.start, event.end)
-        c.body = [time, event.location].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+        // the place without its video link; a location that was only the link names the service
+        let place = event.displayLocation ?? event.conferenceURL.map(ConferenceDetector.serviceName(for:))
+        c.body = [time, place].compactMap { $0 }.joined(separator: " · ")
         c.sound = .default
         c.categoryIdentifier = event.conferenceURL == nil ? category : joinCategory
         c.userInfo = ["account": event.account, "calendarId": event.calendarId, "eventId": event.id,

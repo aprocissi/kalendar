@@ -58,6 +58,18 @@ final class EventParsingTests: XCTestCase {
         XCTAssertFalse(exception.isRecurringMaster)
     }
 
+    /// The list and alerts show the place, not the video link the 📹 glyph stands for.
+    func testLocationShownWithoutVideoLinks() {
+        XCTAssertEqual(ConferenceDetector.removingLinks(from: "https://us02web.zoom.us/j/84965702404, Neat Board (20)"),
+                       "Neat Board (20)")
+        XCTAssertEqual(ConferenceDetector.removingLinks(from: "Room 4, https://zoom.us/j/1234567890?pwd=abc"), "Room 4")
+        XCTAssertEqual(ConferenceDetector.removingLinks(from: "https://meet.google.com/abc-defg-hij"), "")
+        // no link: the text is left exactly as it is
+        XCTAssertEqual(ConferenceDetector.removingLinks(from: "85 Pike St,  Seattle; WA"), "85 Pike St,  Seattle; WA")
+        XCTAssertEqual(ConferenceDetector.removingLinks(from: "https://example.com/map, Room 4"),
+                       "https://example.com/map, Room 4")
+    }
+
     func testConferenceLinksFoundInLocationAndNotes() {
         XCTAssertEqual(ConferenceDetector.url(in: ["https://us02web.zoom.us/j/84965702404, Board room"]),
                        "https://us02web.zoom.us/j/84965702404")
