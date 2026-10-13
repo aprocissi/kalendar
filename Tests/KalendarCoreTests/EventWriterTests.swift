@@ -130,6 +130,19 @@ final class EventWriterTests: XCTestCase {
         XCTAssertNil(writer.undoableDelete)
     }
 
+    /// A calendar both accounts cache (one subscribes to the other's): deleting the event through
+    /// one account removes the other account's copy too, instead of leaving it until its next sync.
+    func testDeleteRemovesEveryAccountsCopy() async throws {
+        let e = event()
+        var shared = e
+        shared.account = "work@example.com"
+        try cache.upsert([e, shared])
+        google.handler = { _, _ in (204, "") }
+        writer.delete(e, scope: .occurrence)
+        XCTAssertNil(try cached())
+        XCTAssertNil(try cache.event(account: "work@example.com", calendarId: "primary", id: "e1"))
+    }
+
     /// If Google won't un-cancel the event, undo inserts a copy without its guests (§8.2).
     func testUndoFallsBackToInsertingACopy() async throws {
         let e = event()

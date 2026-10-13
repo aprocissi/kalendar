@@ -76,7 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // `--args -selfTest <file>` runs the Google write paths and quits (SelfTest.swift).
         // Before the sync triggers, so no background sync overlaps the writes it checks.
-        if let report = UserDefaults.standard.string(forKey: "selfTest") {
+        // Only from the launch arguments: a `selfTest` key left in the saved defaults must not start
+        // Google writes and deletes on a normal launch.
+        if let report = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["selfTest"] as? String {
             Task { [self] in
                 var test = SelfTest(accounts: accounts, cache: cache, engine: engine, writer: writer)
                 await test.run(reportTo: report)

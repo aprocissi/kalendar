@@ -10,13 +10,14 @@ struct EventEditor: View {
     /// The ▣ | ✓ toggle, on the new-item form only (§5.1).
     var onKind: ((Bool) -> Void)?
 
-    private var readOnly: Bool { model.isInvitation }
+    private var readOnly: Bool { model.isInvitation || model.isReadOnlyCalendar }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 header
-                fields
+                // an invitation keeps color, busy/free and alerts; a read-only calendar keeps nothing
+                fields.disabled(model.isReadOnlyCalendar)
                 if model.expanded || readOnly || !model.draft.attendees.isEmpty { attendees }
                 if model.expanded || readOnly { notes }
                 WriteError(writer: model.writer)

@@ -432,7 +432,7 @@ final class PopoverModel {
     }
 
     /// Duplicate as Event (§7.3): an all-day event on the due day (today when undated), on the
-    /// primary calendar of the task's account.
+    /// Default calendar, else the primary calendar of the task's account.
     func duplicateAsEvent(_ task: TaskItem) {
         guard let calendar = agenda.defaultCalendar(account: task.account) else { return }
         var draft = EventDraft(parsed: ParsedItem(title: task.title, allDayOn: task.due ?? agenda.today),
@@ -442,7 +442,9 @@ final class PopoverModel {
     }
 
     func delete(_ event: EventInstance) {
-        guard let scope = Dialogs.scope(for: event) else { return }
+        // ⌫ on a read-only calendar's event: Google would refuse it
+        guard agenda.calendar(forKey: event.calendarKey)?.isWritable != false,
+              let scope = Dialogs.scope(for: event) else { return }
         writer.delete(event, scope: scope)
         agenda.selection = nil
     }

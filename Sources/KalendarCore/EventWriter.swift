@@ -87,7 +87,7 @@ public final class EventWriter {
             updated.account = draft.account
             updated.calendarId = draft.calendarId
         }
-        try? cache.deleteEvent(account: event.account, calendarId: event.calendarId, id: event.id)
+        try? cache.deleteEvent(calendarId: event.calendarId, id: event.id)
         try? cache.upsert([updated])
         engine.onChange()
         Task { await flush() }
@@ -142,7 +142,7 @@ public final class EventWriter {
     public func delete(_ event: EventInstance, scope: Scope) {
         let target = Self.target(event, scope)
         enqueue(queued("DELETE", event, id: target.id, query: ["sendUpdates": Self.sendUpdates(event)]))
-        try? cache.deleteEvent(account: event.account, calendarId: event.calendarId, id: event.id, series: target.series)
+        try? cache.deleteEvent(calendarId: event.calendarId, id: event.id, series: target.series)
         // an invitation someone else organized cannot be restored by Kalendar (§8.2)
         undoableDelete = event.isInvitation ? nil : event
         lastDeleteScope = target.series == nil ? .occurrence : .series
@@ -309,7 +309,7 @@ public final class EventWriter {
         // writes queued behind this one were made against the version it replaced
         if let etag = g?.etag { try? cache.updateQueuedIfMatch(eventId: write.eventId, to: etag) }
         if write.path.hasSuffix("/move") {
-            try? cache.deleteEvent(account: write.account, calendarId: write.calendarId, id: write.eventId,
+            try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId,
                                    series: write.refreshSeries)
         }
         if let series = write.refreshSeries {
@@ -318,7 +318,7 @@ public final class EventWriter {
         }
         guard let g else { return }
         if let placeholder = write.replaces {
-            try? cache.deleteEvent(account: write.account, calendarId: calendarId, id: placeholder)
+            try? cache.deleteEvent(calendarId: calendarId, id: placeholder)
             try? cache.retargetQueued(account: write.account, calendarId: calendarId, from: placeholder, to: g.id)
         }
         if g.isRecurringMaster {
@@ -342,10 +342,10 @@ public final class EventWriter {
             if let instance = g.instance(account: write.account, calendarId: write.calendarId) {
                 try? cache.upsert([instance])
             } else {
-                try? cache.deleteEvent(account: write.account, calendarId: write.calendarId, id: write.eventId)
+                try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId)
             }
         } catch GoogleCalendarAPI.APIError.notFound {
-            try? cache.deleteEvent(account: write.account, calendarId: write.calendarId, id: write.eventId)
+            try? cache.deleteEvent(calendarId: write.calendarId, id: write.eventId)
         } catch {}
     }
 

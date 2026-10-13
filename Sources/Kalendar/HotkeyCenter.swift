@@ -14,38 +14,31 @@ final class HotkeyCenter {
     static let shared = HotkeyCenter()
 
     var handler: (() -> Void)?
+    /// While the shortcut recorder listens, a press does nothing. The shortcut stays registered:
+    /// unregistering it would let another app holding the same combination take it for good.
+    var isRecording = false
     private var ref: EventHotKeyRef?
     private var handlerInstalled = false
-    /// The last shortcut registered, for `resume`.
-    private var current: Preferences.Hotkey?
 
     /// Registers `hotkey`, replacing the previous one.
     func register(_ hotkey: Preferences.Hotkey) {
         if !handlerInstalled {
             var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: OSType(kEventHotKeyPressed))
             InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-                DispatchQueue.main.async { HotkeyCenter.shared.handler?() }
+                DispatchQueue.main.async {
+                    let center = HotkeyCenter.shared
+                    if !center.isRecording { center.handler?() }
+                }
                 return noErr
             }, 1, &spec, nil, nil)
             handlerInstalled = true
         }
-        suspend()
-        current = hotkey
+        if let ref { UnregisterEventHotKey(ref) }
+        ref = nil
         let status = RegisterEventHotKey(hotkey.keyCode, hotkey.modifiers,
                                          EventHotKeyID(signature: OSType(0x4B4C4E44), id: 1),   // 'KLND'
                                          GetApplicationEventTarget(), 0, &ref)
         if status != noErr { Log.shell.error("hotkey register failed: \(status)") }
-    }
-
-    /// While the recorder listens, the old shortcut must not fire.
-    func suspend() {
-        if let ref { UnregisterEventHotKey(ref) }
-        ref = nil
-    }
-
-    /// Recording ended: the last shortcut again, unless a new one was registered meanwhile.
-    func resume() {
-        if ref == nil, let current { register(current) }
     }
 }
 
@@ -126,7 +119,7 @@ struct ShortcutRecorder: View {
 
     private func start() {
         recording = true
-        HotkeyCenter.shared.suspend()
+        HotkeyCenter.shared.isRecording = true
         // the Settings window; a key typed in any other window (the Mini Window, say) ends recording
         let window = NSApp.keyWindow
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
@@ -150,6 +143,6 @@ struct ShortcutRecorder: View {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         recording = false
-        HotkeyCenter.shared.resume()
+        HotkeyCenter.shared.isRecording = false
     }
 }
