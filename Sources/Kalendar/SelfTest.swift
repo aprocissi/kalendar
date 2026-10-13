@@ -221,5 +221,7 @@ struct SelfTest {
              + "notification center \(settings.notificationCenterSetting.rawValue); still pending: \(pending)")
         check(delivered != nil, "alert delivered: \"\(content.title)\" / \"\(content.body)\"")
         center.removeDeliveredNotifications(withIdentifiers: [id])
+        // an undelivered one would fire later
+        center.removePendingNotificationRequests(withIdentifiers: [id])
     }
 }

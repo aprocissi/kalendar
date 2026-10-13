@@ -80,18 +80,22 @@ struct EventEditor: View {
         let d = model.draft
         VStack(alignment: .leading, spacing: 6) {
             Row("all-day") {
-                Toggle("", isOn: Binding(get: { d.allDay }, set: { model.setAllDay($0) }))
+                Toggle("all-day", isOn: Binding(get: { d.allDay }, set: { model.setAllDay($0) }))
                     .labelsHidden().toggleStyle(.checkbox).disabled(readOnly)
             }
             Row("starts") {
-                DatePicker("", selection: Binding(get: { d.start }, set: { model.setStart($0) }),
+                DatePicker("starts", selection: Binding(get: { d.start }, set: { model.setStart($0) }),
                            displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
                     .labelsHidden().disabled(readOnly)
             }
             Row("ends") {
-                DatePicker("", selection: Binding(get: { model.displayedEnd }, set: { model.displayedEnd = $0 }),
+                // `in: d.start...` stops a half-typed end (each segment commits) from moving the start.
+                // When the start moves, NSDatePicker clamps the new end to the old minimum and shows
+                // that, so `.id` rebuilds the picker with the new range.
+                DatePicker("ends", selection: Binding(get: { model.displayedEnd }, set: { model.displayedEnd = $0 }),
                            in: d.start..., displayedComponents: d.allDay ? [.date] : [.date, .hourAndMinute])
                     .labelsHidden().disabled(readOnly)
+                    .id(d.start)
             }
             if model.expanded && !d.allDay {
                 Row("time zone") { TimeZoneMenu(identifier: $model.draft.timeZone).disabled(readOnly) }
@@ -362,9 +366,11 @@ private struct RepeatEndMenu: View {
             .fixedSize()
             switch end {
             case .until(let day):
-                DatePicker("", selection: Binding(get: { day }, set: { set(.until($0)) }),
+                DatePicker("repeat until", selection: Binding(get: { day }, set: { set(.until($0)) }),
                            in: model.draft.start..., displayedComponents: .date)
                     .labelsHidden()
+                    // the range changes with the start; rebuilt like the "ends" picker so it shows the new one
+                    .id(model.draft.start)
             case .count(let n):
                 Stepper("\(n) times", value: Binding(get: { n }, set: { set(.count($0)) }), in: 1...999)
             case .never:

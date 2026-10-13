@@ -263,6 +263,9 @@ final class PlaceSearch: NSObject, MKLocalSearchCompleterDelegate {
             guard query != oldValue else { return }
             if query.isEmpty {
                 results = []
+                // the completer ignores a fragment equal to its current one, so retyping the last
+                // query after clearing would otherwise show no results
+                completer.queryFragment = ""
                 completer.cancel()
             } else {
                 completer.queryFragment = query
@@ -273,6 +276,8 @@ final class PlaceSearch: NSObject, MKLocalSearchCompleterDelegate {
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         let results = completer.results
         MainActor.assumeIsolated {
+            // a reply to a query made before the field was cleared
+            guard !query.isEmpty else { return }
             self.results = Array(results.prefix(6))
             onResults()
         }

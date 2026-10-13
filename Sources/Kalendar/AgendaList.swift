@@ -21,8 +21,8 @@ struct AgendaList: View {
                             DayHeader(day: section.day, today: model.today)
                                 .id(section.day)
                             ForEach(section.allDay, id: \.key) { event in
-                                AllDayPill(event: event, color: model.color(for: event),
-                                           isSelected: model.selection == event.key)
+                                AllDayPill(event: event, model: model, isSelected: model.selection == event.key,
+                                           actions: actions)
                             }
                             ForEach(section.tasks, id: \.key) { task in
                                 TaskRow(task: task, actions: actions)
@@ -86,9 +86,10 @@ private struct DayHeader: View {
 /// All-day events: rounded pills in the event's color, title only (§4.3).
 private struct AllDayPill: View {
     let event: EventInstance
-    let color: Color
+    let model: AgendaModel
     /// Keyboard selection (§11): the row selection color behind the pill.
     let isSelected: Bool
+    let actions: PopoverModel
 
     var body: some View {
         Text(event.summary)
@@ -97,14 +98,36 @@ private struct AllDayPill: View {
             .lineLimit(1)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
-            .background(color, in: RoundedRectangle(cornerRadius: 6))
+            .background(model.color(for: event), in: RoundedRectangle(cornerRadius: 6))
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .rowSelection(isSelected)
             .padding(.horizontal, 8)
+            .modifier(EventClicks(event: event, model: model, actions: actions))
             .accessibilityLabel("All day: \(event.summary)")
+            .accessibilityAddTraits(.isButton)
             .accessibilityValue(isSelected ? "selected" : "")
+    }
+}
+
+/// An event row's click (the detail popover, §6) and right-click (§7.1), for timed rows and
+/// all-day pills alike.
+private struct EventClicks: ViewModifier {
+    let event: EventInstance
+    let model: AgendaModel
+    let actions: PopoverModel
+    @State private var anchor: NSView?
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .background(AnchorView(view: $anchor))
+            .onTapGesture {
+                model.selection = event.key
+                actions.openEvent(event, anchor: anchor)
+            }
+            .contextMenu { EventContextMenu(event: event, actions: actions) }
     }
 }
 
@@ -115,7 +138,6 @@ private struct EventRow: View {
     let isSelected: Bool
     let showsJoin: Bool
     let actions: PopoverModel
-    @State private var anchor: NSView?
 
     var body: some View {
         // events that ended today are always dimmed (§4.3); earlier days' only with the setting (§12)
@@ -159,13 +181,7 @@ private struct EventRow: View {
         .padding(.vertical, 5)
         .rowSelection(isSelected)
         .padding(.horizontal, 8)
-        .contentShape(Rectangle())
-        .background(AnchorView(view: $anchor))
-        .onTapGesture {
-            model.selection = event.key
-            actions.openEvent(event, anchor: anchor)
-        }
-        .contextMenu { EventContextMenu(event: event, actions: actions) }
+        .modifier(EventClicks(event: event, model: model, actions: actions))
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isSelected ? "selected" : "")

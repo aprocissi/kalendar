@@ -96,7 +96,6 @@ struct PopoverRoot: View {
                 .uiFont(17)
                 .foregroundStyle(Theme.text)
                 .focused($inputFocused)
-                .onExitCommand { model.escape() }
                 .accessibilityLabel(searching ? "Search" : "New event or task")
             if searching || !model.input.isEmpty {
                 Button { if searching { model.toggleSearch() } else { model.cancelNewItem() } } label: {

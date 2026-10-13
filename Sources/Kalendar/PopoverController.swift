@@ -22,6 +22,7 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     private weak var anchor: NSStatusBarButton?
     private let model: PopoverModel
     private var keyMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
     /// Called each time the popover opens; the app syncs then (§18.3).
     var onOpen: () -> Void = {}
 
@@ -39,6 +40,13 @@ final class PopoverController: NSObject, NSPopoverDelegate {
         model.childShown = { [weak self] in self?.detail != nil }
         model.closeChild = { [weak self] in self?.closeChild() ?? true }
         popover.contentViewController = NSHostingController(rootView: TextScaled(PopoverRoot(model: model)))
+        // Theme (§12). A popover takes its appearance from the status item it is shown from, which
+        // follows the menu bar rather than NSApp.appearance; the detail popovers inherit this one's.
+        // Observing the app's effective appearance covers both a Theme change and, with System, the
+        // system switching between light and dark.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: [.initial]) { [weak self] app, _ in
+            MainActor.assumeIsolated { self?.popover.appearance = app.effectiveAppearance }
+        }
     }
 
     var isShown: Bool { popover.isShown }
@@ -115,6 +123,8 @@ final class PopoverController: NSObject, NSPopoverDelegate {
     /// stay open: the item's action fires on mouse-up and `toggle` closes the popover then. Closing
     /// here as well would let that mouse-up reopen it.
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        // a dialog (§8) taking key must not close the popover behind it: Cancel returns to it
+        if NSApp.modalWindow != nil { return false }
         // the detail popover saves on close (§6) and may ask about a recurring event first
         if popover === detail {
             guard shouldClose?() ?? true else { return false }
@@ -459,6 +469,15 @@ final class PopoverModel {
     /// Returns true when the key was handled (§11).
     func handleKey(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        // Esc (or ⌘.) from any field, not only the input: a form field would otherwise close the
+        // popover. An input method composing text takes Esc to cancel the composition.
+        let cancel = (event.keyCode == 53 && flags.isEmpty)
+            || (flags == [.command] && event.charactersIgnoringModifiers == ".")
+        if cancel {
+            if let editor = event.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
+            escape()
+            return true
+        }
         // the suggestion list takes ↑ ↓ Enter Tab while it shows (§5.2)
         if showsSuggestions, flags.isEmpty {
             switch event.keyCode {
@@ -529,7 +548,7 @@ private struct GoToDate: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            DatePicker("", selection: $day, displayedComponents: .date)
+            DatePicker("Go to date", selection: $day, displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .labelsHidden()
             Button("Go") { go(day) }
