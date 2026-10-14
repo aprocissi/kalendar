@@ -77,6 +77,8 @@ struct SelfTest {
             return
         }
         check(!created.id.hasPrefix("local-"), "insert: cached under Google's id \(created.id)")
+        // the edit and delete below would queue writes against a placeholder Google never created
+        guard !created.id.hasPrefix("local-") else { return }
         var (status, g) = await googleEvent(calendar.account, calendar.id, created.id)
         check(status == 200 && g["summary"] as? String == title, "insert: Google has the event")
 
