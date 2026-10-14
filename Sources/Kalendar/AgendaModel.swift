@@ -326,10 +326,12 @@ final class AgendaModel {
         calendarsByKey[event.calendarKey]?.summary ?? event.calendarId
     }
 
-    /// The key of the one event that gets the Join pill (§4.3). All sections, not only today's, so a
-    /// meeting just after midnight gets the pill at 23:45, as the menu bar's Join item does (§3).
+    /// The key of the one event that gets the Join pill (§4.3). Tomorrow's section too, so a meeting
+    /// just after midnight gets the pill at 23:45, as the menu bar's Join item does (§3).
     func joinCandidate(now: Date) -> String? {
-        ConferenceDetector.joinCandidate(in: sections.flatMap(\.timed), now: now)?.key
+        let today = calendar.startOfDay(for: now), soon = now.addingTimeInterval(ConferenceDetector.joinLead)
+        let days = sections.drop { $0.day < today }.prefix { $0.day <= soon }
+        return ConferenceDetector.joinCandidate(in: days.flatMap(\.timed), now: now)?.key
     }
 }
 

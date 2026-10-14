@@ -62,7 +62,7 @@ final class StatusItemController: NSObject {
     func redraw() {
         guard let button = item.button else { return }
         let prefs = Preferences.shared
-        let showsNext = prefs.iconStyle == .nextTitle || prefs.iconStyle == .nextCountdown
+        let showsNext = Self.showsNext
         let now = Date()
         let day = Calendar.current.component(.day, from: now)
         button.image = Self.glyph(day: prefs.iconStyle == .iconOnly ? nil : day, color: prefs.colorIcon)
@@ -110,14 +110,18 @@ final class StatusItemController: NSObject {
         redrawJoin()
     }
 
-    /// Redraws each minute: the next-event styles change (the countdown, the event that just ended),
-    /// and the Join item appears and disappears. The date changes at midnight, which the observers
-    /// above cover.
+    private static var showsNext: Bool {
+        Preferences.shared.iconStyle == .nextTitle || Preferences.shared.iconStyle == .nextCountdown
+    }
+
+    /// Each minute the Join item appears and disappears, and the next-event styles change (the
+    /// countdown, the event that just ended). The date changes at midnight, which the observers above
+    /// cover.
     private func tickEachMinute() {
         let nextMinute = Calendar.current.nextDate(after: Date(), matching: DateComponents(second: 0),
                                                    matchingPolicy: .nextTime) ?? Date().addingTimeInterval(60)
         let timer = Timer(fire: nextMinute, interval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.redraw() }
+            MainActor.assumeIsolated { Self.showsNext ? self?.redraw() : self?.redrawJoin() }
         }
         RunLoop.main.add(timer, forMode: .common)
     }

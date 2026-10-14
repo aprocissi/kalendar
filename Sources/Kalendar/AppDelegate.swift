@@ -162,7 +162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The menu bar's Join item (§3): the meeting in progress or starting within 15 minutes.
     private func joinEvent() -> EventInstance? {
         let now = Date()
-        guard let events = try? cache.events(from: now, to: now.addingTimeInterval(16 * 60)) else { return nil }
+        // the query's end is exclusive; a minute past the lead includes a meeting starting exactly at it
+        let to = now.addingTimeInterval(ConferenceDetector.joinLead + 60)
+        guard let events = try? cache.events(from: now, to: to) else { return nil }
         return ConferenceDetector.joinCandidate(in: events, now: now)
     }
 
