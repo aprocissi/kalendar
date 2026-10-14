@@ -17,6 +17,8 @@ final class FakeGoogle: @unchecked Sendable {
     var requests: [URLRequest] = []
     /// Fails every non-auth request as if the Mac were offline.
     var offline = false
+    /// SyncEngine fetches events and tasks concurrently, so the appends and the handler run under it.
+    private let lock = NSLock()
 
     func callAsFunction(_ request: URLRequest) async throws -> (Data, URLResponse) {
         let url = request.url!
@@ -28,10 +30,12 @@ final class FakeGoogle: @unchecked Sendable {
             (status, body) = (200, #"{"access_token":"at","expires_in":3600}"#)
         } else {
             if offline { throw URLError(.notConnectedToInternet) }
-            requests.append(request)
-            log.append("\(request.httpMethod ?? "GET") \(url.path)" + (query["syncToken"].map { " sync=\($0)" } ?? "")
-                       + (query["singleEvents"].map { " single=\($0)" } ?? ""))
-            (status, body) = handler(request, query)
+            (status, body) = lock.withLock {
+                requests.append(request)
+                log.append("\(request.httpMethod ?? "GET") \(url.path)" + (query["syncToken"].map { " sync=\($0)" } ?? "")
+                           + (query["singleEvents"].map { " single=\($0)" } ?? ""))
+                return handler(request, query)
+            }
         }
         return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
