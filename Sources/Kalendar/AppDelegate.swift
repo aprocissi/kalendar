@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotkeyCenter.shared.register(prefs.hotkey)
         prefs.applyAppearance()
         statusItem.nextEvent = { [weak self] in self?.nextEventToday() }
+        statusItem.joinEvent = { [weak self] in self?.joinEvent() }
         statusItem.redraw()
         prefs.onChange = { [weak self] key in
             guard let self else { return }
@@ -156,6 +157,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let end = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)),
               let events = try? cache.events(from: now, to: end) else { return nil }
         return events.first { !$0.allDay && !$0.isDeclined && $0.end > now }
+    }
+
+    /// The menu bar's Join item (§3): the meeting in progress or starting within 15 minutes.
+    private func joinEvent() -> EventInstance? {
+        let now = Date()
+        guard let events = try? cache.events(from: now, to: now.addingTimeInterval(16 * 60)) else { return nil }
+        return ConferenceDetector.joinCandidate(in: events, now: now)
     }
 
     private func syncIfNeeded(maxAge: TimeInterval) { Task { await engine.syncIfNeeded(maxAge: maxAge) } }

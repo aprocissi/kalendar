@@ -101,6 +101,27 @@ final class EventParsingTests: XCTestCase {
         XCTAssertEqual(ConferenceDetector.serviceName(for: "https://meet.google.com/a"), "Google Meet")
     }
 
+    func testJoinCandidate() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        func e(_ id: String, start: TimeInterval, end: TimeInterval, link: String? = "https://zoom.us/j/1",
+               allDay: Bool = false, response: String? = nil) -> EventInstance {
+            EventInstance(account: "a", calendarId: "c", id: id, recurringEventId: nil, summary: id, location: nil,
+                          notes: nil, start: now + start * 60, end: now + end * 60, allDay: allDay, transparency: nil,
+                          colorId: nil, conferenceURL: link, selfResponse: response, organizerSelf: true, attendees: [],
+                          htmlLink: nil, etag: nil, visibility: nil, timeZone: nil)
+        }
+        let pick = { (events: [EventInstance]) in ConferenceDetector.joinCandidate(in: events, now: now)?.id }
+        XCTAssertEqual(pick([e("now", start: -10, end: 20)]), "now")
+        XCTAssertEqual(pick([e("soon", start: 15, end: 45)]), "soon")
+        XCTAssertNil(pick([e("later", start: 16, end: 45)]))
+        XCTAssertNil(pick([e("over", start: -60, end: 0)]))
+        XCTAssertNil(pick([e("nolink", start: 0, end: 30, link: nil)]))
+        XCTAssertNil(pick([e("declined", start: 0, end: 30, response: "declined")]))
+        XCTAssertNil(pick([e("allday", start: -600, end: 600, allDay: true)]))
+        // the one that started or starts last
+        XCTAssertEqual(pick([e("running", start: -30, end: 30), e("next", start: 10, end: 40)]), "next")
+    }
+
     /// Location is checked before notes, so a Zoom room in the location wins over a Meet link in notes.
     func testLocationBeatsNotes() throws {
         let e = try event("""

@@ -1,6 +1,7 @@
 // The menu bar item (§3, §12): a calendar glyph with today's day number, or the glyph alone, or
 // the next event's title, with an optional countdown. Left-click toggles the popover; right-click
-// (or ⌃-click) opens a small menu.
+// (or ⌃-click) opens a small menu. A second item, Join, shows while a video meeting is in progress or
+// starts within 15 minutes; clicking it opens the meeting link and removes it.
 import AppKit
 import KalendarCore
 
@@ -11,7 +12,14 @@ final class StatusItemController: NSObject {
     private let menu: NSMenu
     /// The next event today, for the next-event icon styles.
     var nextEvent: () -> EventInstance? = { nil }
-    private var minuteTimer: Timer?
+    /// The event to offer Join for (`ConferenceDetector.joinCandidate`).
+    var joinEvent: () -> EventInstance? = { nil }
+    private var joinItem: NSStatusItem?
+    /// The event whose link the Join item last opened. Its Join item stays hidden. A duplicate key,
+    /// so a copy of the same meeting on another calendar stays hidden too.
+    private var joinedKey: EventInstance.DuplicateKey?
+    /// The event the Join item shows.
+    private var joinTarget: (key: EventInstance.DuplicateKey, url: URL)?
 
     var button: NSStatusBarButton? { item.button }
 
@@ -24,6 +32,7 @@ final class StatusItemController: NSObject {
         button.action = #selector(clicked)
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         redraw()
+        tickEachMinute()
         // the day number changes at midnight, when the clock or time zone changes, and across sleep
         let centers: [(NotificationCenter, Notification.Name)] = [
             (.default, .NSCalendarDayChanged), (.default, .NSSystemClockDidChange),
@@ -54,7 +63,6 @@ final class StatusItemController: NSObject {
         guard let button = item.button else { return }
         let prefs = Preferences.shared
         let showsNext = prefs.iconStyle == .nextTitle || prefs.iconStyle == .nextCountdown
-        tickEachMinute(showsNext)
         let now = Date()
         let day = Calendar.current.component(.day, from: now)
         button.image = Self.glyph(day: prefs.iconStyle == .iconOnly ? nil : day, color: prefs.colorIcon)
@@ -69,22 +77,49 @@ final class StatusItemController: NSObject {
             button.imagePosition = .imageOnly
         }
         button.setAccessibilityLabel(label)
+        redrawJoin()
     }
 
-    /// The next-event styles change each minute (the countdown, the event that just ended); the
-    /// date styles change only at midnight, which the observers above cover.
-    private func tickEachMinute(_ on: Bool) {
-        guard on != (minuteTimer != nil) else { return }
-        minuteTimer?.invalidate()
-        minuteTimer = nil
-        guard on else { return }
+    /// Shows the Join item for the current join candidate, unless its link was opened from here.
+    private func redrawJoin() {
+        guard let event = joinEvent(), event.duplicateKey != joinedKey,
+              let link = event.conferenceURL, let url = URL(string: link) else {
+            if let joinItem { NSStatusBar.system.removeStatusItem(joinItem) }
+            joinItem = nil
+            joinTarget = nil
+            return
+        }
+        // created after the calendar item, so it sits to its left
+        let item = joinItem ?? NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        joinItem = item
+        joinTarget = (event.duplicateKey, url)
+        guard let button = item.button else { return }
+        button.target = self
+        button.action = #selector(join)
+        button.image = NSImage(systemSymbolName: "video.fill", accessibilityDescription: nil)
+        button.imagePosition = .imageLeading
+        button.title = " Join"
+        button.toolTip = event.summary
+        button.setAccessibilityLabel("Join \(ConferenceDetector.serviceName(for: link)) meeting, \(event.summary)")
+    }
+
+    @objc private func join() {
+        guard let joinTarget else { return }
+        NSWorkspace.shared.open(joinTarget.url)
+        joinedKey = joinTarget.key
+        redrawJoin()
+    }
+
+    /// Redraws each minute: the next-event styles change (the countdown, the event that just ended),
+    /// and the Join item appears and disappears. The date changes at midnight, which the observers
+    /// above cover.
+    private func tickEachMinute() {
         let nextMinute = Calendar.current.nextDate(after: Date(), matching: DateComponents(second: 0),
                                                    matchingPolicy: .nextTime) ?? Date().addingTimeInterval(60)
         let timer = Timer(fire: nextMinute, interval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.redraw() }
         }
         RunLoop.main.add(timer, forMode: .common)
-        minuteTimer = timer
     }
 
     /// "Standup" or "Standup in 25m" / "Standup now"; long titles are cut to fit the menu bar.

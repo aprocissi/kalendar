@@ -326,12 +326,10 @@ final class AgendaModel {
         calendarsByKey[event.calendarKey]?.summary ?? event.calendarId
     }
 
-    /// The one event that gets the Join pill (§4.3): in progress or starting within 15 minutes, with a
-    /// video link, not declined. With several, the one that started or starts last.
+    /// The key of the one event that gets the Join pill (§4.3). All sections, not only today's, so a
+    /// meeting just after midnight gets the pill at 23:45, as the menu bar's Join item does (§3).
     func joinCandidate(now: Date) -> String? {
-        sections.first { calendar.isDate($0.day, inSameDayAs: now) }?.timed
-            .filter { $0.conferenceURL != nil && $0.end > now && $0.start <= now.addingTimeInterval(15 * 60) }
-            .max { $0.start < $1.start }?.key
+        ConferenceDetector.joinCandidate(in: sections.flatMap(\.timed), now: now)?.key
     }
 }
 
