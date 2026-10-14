@@ -1,5 +1,6 @@
-// Finds an event's video-call link (§4.3) for the 📹 glyph, the Join pill and the alert's Join
-// action. Google's structured conference data wins; otherwise links in the location and notes.
+// Finds an event's video-call link (§4.3) for the 📹 glyph, the Join pill, the menu bar's Join
+// button and the alert's Join action. Google's structured conference data wins; otherwise links in
+// the location and notes.
 import Foundation
 
 public enum ConferenceDetector {
@@ -53,5 +54,18 @@ public enum ConferenceDetector {
         if host.hasSuffix("webex.com") { return "Webex" }
         if host == "facetime.apple.com" { return "FaceTime" }
         return "Video"
+    }
+
+    /// How long before its start a meeting is offered for Join.
+    public static let joinLead: TimeInterval = 15 * 60
+
+    /// The one event to offer Join for (§3, §4.3): timed, with a video link, not declined, in progress
+    /// or starting within `joinLead`. With several, the one that started or starts last.
+    public static func joinCandidate(in events: [EventInstance], now: Date) -> EventInstance? {
+        events.filter {
+            !$0.allDay && !$0.isDeclined && $0.conferenceURL != nil
+                && $0.end > now && $0.start <= now.addingTimeInterval(joinLead)
+        }
+        .max { $0.start < $1.start }
     }
 }

@@ -50,6 +50,7 @@ The behavior below was specified on 2026‑09‑21 from observation of an existi
 - **Left‑click**: toggle popover.
 - **⌥‑click** [out of scope]: the reference app opens the full window; here, no‑op or open Settings.
 - Right‑click: small menu — Settings…, Check for Updates…, About, Quit. **[decision]**
+- **Join item [decision]:** while an event would get the Join pill (§4.3: timed, video link, not declined, in progress or starting within 15 minutes), a second status item to the left of the glyph shows a video glyph and "Join". Clicking it opens the link and removes the item. It does not return for that event; it returns for the next event that qualifies. It updates each minute and after each sync.
 - Must coexist with menu bar managers (Bartender/Ice): use a standard `NSStatusItem`; anchor the popover to `statusItem.button`.
 
 ---
@@ -106,7 +107,7 @@ Behaviors:
 - All‑day events are pinned at the top of their day section, directly under the header, as rounded pills filled with the calendar (or event) color, title only, no dot or time (observed: "Columbus Day" in yellow on the US Holidays calendar, 2026‑10‑12).
 - An incomplete task whose due date has passed is shown in today's section, with its due date in `wait` above the title (observed in the reference app: "Sep 28 at 9:00 AM" on 10/12). Kalendar shows the date only ("Sep 28"), because Google Tasks stores no time.
 - Past events today are dimmed (observed: events before now are grey; current/next are full white).
-- The current or next event with a detected conference URL shows an `accent` **Join** pill at the trailing edge; clicking opens the URL. **[decision]** "Current or next" means the event is in progress or starts within 15 minutes; only one row shows the pill at a time. Conference URL sources, in order: the event's `conferenceData.entryPoints` entry with `entryPointType == "video"`, then `hangoutLink`, then a regex match for Zoom (`zoom.us/j/`), Google Meet, Teams, Webex, and FaceTime links in `location` and `description`.
+- The current or next event with a detected conference URL shows an `accent` **Join** pill at the trailing edge; clicking opens the URL. **[decision]** "Current or next" means the event is timed, not declined, and in progress or starts within 15 minutes; only one row shows the pill at a time. Conference URL sources, in order: the event's `conferenceData.entryPoints` entry with `entryPointType == "video"`, then `hangoutLink`, then a regex match for Zoom (`zoom.us/j/`), Google Meet, Teams, Webex, and FaceTime links in `location` and `description`.
 - "List shows: All Days" → list is effectively infinite scroll forward. Load ±N months lazily. **[decision]** initial window: today → +60 days, extend on scroll.
 - Combine identical events (same title, start, end, location across calendars) into one row.
 - Single‑click a row → selects it and opens the **detail popover** (§6). Double‑click → same. `⌘E` toggles the popover for the selection.
@@ -444,7 +445,7 @@ Persist with `UserDefaults`; the observed values in §2 are the defaults.
   - `AlertScheduler` — schedules and delivers event alerts (§19).
   - `NLParser` — pure Swift, `parse(String, referenceDate:, defaults:) -> ParsedItem` with a token map so the UI can highlight consumed spans. Fully unit‑tested against the §5.2 table plus the reference app's example sentences.
   - `Suggestions` — `/` calendars, `with` contacts (People API cache, §18.4), `at` places (`MKLocalSearchCompleter` + recent locations).
-  - `ConferenceDetector` — reads `conferenceData` and `hangoutLink`, then falls back to regexes for Zoom/Meet/Teams/Webex/FaceTime (§4.3); feeds the 📹 glyph, the Join pill and the alert's Join action.
+  - `ConferenceDetector` — reads `conferenceData` and `hangoutLink`, then falls back to regexes for Zoom/Meet/Teams/Webex/FaceTime (§4.3); feeds the 📹 glyph, the Join pill, the menu bar's Join item (§3) and the alert's Join action.
   - `UI` — `PopoverRoot`, `InputRow`, `MonthGrid`, `AgendaList`, `ItemForm`, `DetailPopover`, `TasksList`, `SettingsView`.
 - State: one `@Observable AppModel` (selectedDate, visibleRange, mode: .list/.tasks/.search, draft: ParsedItem?, selection).
 - Undo: `UndoManager` around API saves and deletes (limits in §8.2).

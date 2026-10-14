@@ -37,7 +37,7 @@ public enum GoogleCalendarAPI {
                         body: Data? = nil, accessToken: String) -> URLRequest {
         var c = URLComponents(string: path.hasPrefix("https://") ? path : base + path)!
         let items = query.sorted { $0.key < $1.key }.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }
-        // no items: no "?" either
+        // URLComponents adds a trailing "?" for an empty array
         c.queryItems = items.isEmpty ? nil : items
         var r = URLRequest(url: c.url!)
         r.httpMethod = method

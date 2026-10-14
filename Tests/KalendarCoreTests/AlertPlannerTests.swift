@@ -45,7 +45,8 @@ final class AlertPlannerTests: XCTestCase {
         var e = event("holiday", startsIn: midnight.timeIntervalSince(now) / 60,
                       reminders: Reminders(useDefault: false, minutes: [9 * 60]), allDay: true)
         e.end = midnight.addingTimeInterval(86400)
-        let plan = AlertPlanner.plan(events: [e], calendars: calendars, now: now)
+        // planned from noon the day before, so the alert is in the future in every time zone
+        let plan = AlertPlanner.plan(events: [e], calendars: calendars, now: midnight.addingTimeInterval(-12 * 3600))
         XCTAssertEqual(plan.first?.fireDate, midnight.addingTimeInterval(-9 * 3600))
     }
 
