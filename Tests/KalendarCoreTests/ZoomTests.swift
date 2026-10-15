@@ -115,4 +115,15 @@ final class ZoomTests: XCTestCase {
         XCTAssertFalse(zoom.isConnected)
         XCTAssertNil(vault.tokens["zoom"])
     }
+
+    func testMeetingLinksOpenInTheWebClient() {
+        func web(_ link: String) -> String { URL(string: link)!.zoomWebClient.absoluteString }
+        XCTAssertEqual(web("https://us02web.zoom.us/j/123?pwd=abc"), "https://us02web.zoom.us/wc/123/join?pwd=abc")
+        XCTAssertEqual(web("https://zoom.us/j/123"), "https://zoom.us/wc/123/join")
+        XCTAssertEqual(web("https://zoom.us/j/123#success"), "https://zoom.us/wc/123/join#success")
+        // personal rooms, other services, and links that merely contain /j/ stay as they are
+        XCTAssertEqual(web("https://zoom.us/my/someone"), "https://zoom.us/my/someone")
+        XCTAssertEqual(web("https://meet.google.com/abc-defg-hij"), "https://meet.google.com/abc-defg-hij")
+        XCTAssertEqual(web("https://example.com/j/123"), "https://example.com/j/123")
+    }
 }

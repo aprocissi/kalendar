@@ -182,3 +182,15 @@ public final class ZoomAccount {
         return parsed
     }
 }
+
+extension URL {
+    /// The browser client for a Zoom meeting link: zoom.us/j/123?pwd=… is zoom.us/wc/123/join?pwd=….
+    /// Any other link is itself.
+    public var zoomWebClient: URL {
+        guard var parts = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              parts.host?.lowercased().hasSuffix("zoom.us") == true,
+              parts.path.hasPrefix("/j/") else { return self }
+        parts.path = "/wc/" + parts.path.dropFirst(3) + "/join"
+        return parts.url ?? self
+    }
+}
