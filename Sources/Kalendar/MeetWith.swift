@@ -1,6 +1,6 @@
 // Meet With (§21): a week grid with the user's events and the chosen people's side by side in each
-// day, so a slot open to everyone stands out. Clicking a slot opens the new-event form for it, with
-// the people invited.
+// day, so a slot open to everyone stands out. Clicking a slot, or dragging across slots, opens the
+// new-event form for it, with the people invited.
 import AppKit
 import KalendarCore
 import SwiftUI
@@ -160,9 +160,9 @@ final class MeetWithModel {
 
     // MARK: New event
 
-    /// Opens the new-event form at `start`: the default duration, the people invited, on the
-    /// default calendar of the account in the first person's domain.
-    func openSlot(_ start: Date) {
+    /// Opens the new-event form for [start, end): the people invited, on the default calendar of the
+    /// account in the first person's domain.
+    func openSlot(_ start: Date, end: Date) {
         let account = people.first.map { accounts.emails(preferringDomainOf: $0.email).first } ?? accounts.accounts.first?.email
         guard let calendar = agenda.defaultCalendar(account: account) else { return }
         var draft = EventDraft(parsed: NLParser().parse(""), account: calendar.account, calendarId: calendar.id)
@@ -172,7 +172,7 @@ final class MeetWithModel {
         draft.busy = true
         draft.reminders = Reminders()
         draft.start = start
-        draft.end = start.addingTimeInterval(TimeInterval(Preferences.shared.defaultDuration * 60))
+        draft.end = end
         draft.invite(people.map { ($0.email, $0.name) })
         newEvent = EventEditorModel(newDraft: draft, agenda: agenda, writer: writer)
     }
@@ -330,10 +330,11 @@ private struct Legend: View {
 }
 
 /// Hours down the side, the week's days across, each day split into a column per person (the user
-/// first). The slot under the pointer is highlighted; a click opens the new-event form there.
+/// first). The slot under the pointer is highlighted; a click opens the new-event form there, and a
+/// drag opens it for the slots dragged across.
 private struct WeekGrid: View {
     @Bindable var model: MeetWithModel
-    @State private var hover = HoverSlot()
+    @State private var highlight = SlotHighlight()
     @State private var clicked: CGRect = .zero
 
     private let hourHeight: CGFloat = 48
@@ -397,10 +398,6 @@ private struct WeekGrid: View {
         let busyOnly = [false] + shown.map { if case .busy = $0.1 { true } else { false } }
         let columnWidth = dayWidth / CGFloat(columns.count)
         return ZStack(alignment: .topLeading) {
-            HoverHighlight(hover: hover) { slot in
-                CGRect(x: gutter + CGFloat(slot.day) * dayWidth + 1, y: y(slot.start, in: model.days[slot.day]),
-                       width: dayWidth - 2, height: height(Preferences.shared.defaultDuration * 60))
-            }
             ForEach(0..<24, id: \.self) { hour in
                 HStack(alignment: .top, spacing: 4) {
                     Text(hourLabel(hour)).uiFont(11).foregroundStyle(Theme.muted)
@@ -425,25 +422,35 @@ private struct WeekGrid: View {
                     }
                 }
             }
+            // last, so the span being chosen shows over the events it overlaps
+            SlotHighlightView(highlight: highlight) { rect(for: $0, dayWidth: dayWidth).insetBy(dx: 1, dy: 0) }
         }
         .frame(width: gutter + 7 * dayWidth, height: 24 * hourHeight, alignment: .topLeading)
         .contentShape(Rectangle())
         .onContinuousHover { phase in
-            switch phase {
-            // only a new slot redraws, and only the highlight reads `hover`
-            case .active(let point):
-                let slot = slot(at: point, dayWidth: dayWidth)
-                if slot != hover.slot { hover.slot = slot }
-            case .ended: hover.slot = nil
+            // with the button down, a drag owns the highlight
+            guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+            // only a new slot redraws, and only the highlight view reads `highlight`
+            var span: Span?
+            if case .active(let point) = phase { span = slot(at: point, dayWidth: dayWidth).map(defaultSpan) }
+            if span != highlight.span { highlight.span = span }
+        }
+        // a click opens the form for the default duration; a drag, for the slots dragged across
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { drag in
+                guard let span = span(of: drag, dayWidth: dayWidth) else { return }
+                if span != highlight.span { highlight.span = span }
             }
-        }
-        .onTapGesture { point in
-            guard let target = slot(at: point, dayWidth: dayWidth) else { return }
-            clicked = CGRect(x: gutter + CGFloat(target.day) * dayWidth, y: y(target.start, in: model.days[target.day]),
-                             width: dayWidth, height: height(Preferences.shared.defaultDuration * 60))
-            model.openSlot(target.start)
-        }
-        .popover(isPresented: Binding(get: { model.newEvent != nil }, set: { if !$0 { model.newEvent = nil } }),
+            .onEnded { drag in
+                guard let span = span(of: drag, dayWidth: dayWidth) else { return }
+                highlight.span = span
+                clicked = rect(for: span, dayWidth: dayWidth)
+                model.openSlot(span.start, end: span.end)
+            })
+        .popover(isPresented: Binding(get: { model.newEvent != nil }, set: { shown in
+                    // closing the form clears its span; the pointer's next move shows the slot under it
+                    if !shown { model.newEvent = nil; highlight.span = nil }
+                 }),
                  attachmentAnchor: .rect(.rect(clicked)), arrowEdge: .trailing) {
             if let form = model.newEvent {
                 EventEditor(model: form, onAdd: model.addEvent).frame(width: 320)
@@ -457,6 +464,30 @@ private struct WeekGrid: View {
             Theme.bad.frame(width: dayWidth, height: 2)
                 .offset(x: gutter + CGFloat(dayIndex) * dayWidth, y: y(now, in: model.days[dayIndex]))
         }
+    }
+
+    /// The meeting a press or drag describes: from the slot pressed to the one under the pointer, in
+    /// that day's column, either direction; the default duration while the pointer is in the slot
+    /// pressed, so a click that jitters, or a drag brought back, isn't a 30-minute meeting.
+    private func span(of drag: DragGesture.Value, dayWidth: CGFloat) -> Span? {
+        guard let from = slot(at: drag.startLocation, dayWidth: dayWidth) else { return nil }
+        // the pointer may leave the grid; it is held to the day's first and last slots
+        let y = min(max(drag.location.y, 0), 24 * hourHeight - 1)
+        guard let to = slot(at: CGPoint(x: drag.startLocation.x, y: y), dayWidth: dayWidth) else { return nil }
+        guard to != from else { return defaultSpan(from) }
+        let (first, last) = from.start <= to.start ? (from, to) : (to, from)
+        return Span(day: from.day, start: first.start, end: last.start.addingTimeInterval(slot))
+    }
+
+    private func defaultSpan(_ slot: Slot) -> Span {
+        Span(day: slot.day, start: slot.start,
+             end: slot.start.addingTimeInterval(TimeInterval(Preferences.shared.defaultDuration * 60)))
+    }
+
+    private func rect(for span: Span, dayWidth: CGFloat) -> CGRect {
+        let day = model.days[span.day]
+        let top = y(span.start, in: day)
+        return CGRect(x: gutter + CGFloat(span.day) * dayWidth, y: top, width: dayWidth, height: y(span.end, in: day) - top)
     }
 
     /// The 30-minute slot at `point`, by day column.
@@ -488,8 +519,6 @@ private struct WeekGrid: View {
         return (CGFloat(c.hour ?? 0) + CGFloat(c.minute ?? 0) / 60 + CGFloat(c.second ?? 0) / 3600) * hourHeight
     }
 
-    private func height(_ seconds: Int) -> CGFloat { CGFloat(seconds) / 3600 * hourHeight }
-
     private func hourLabel(_ hour: Int) -> String {
         guard hour > 0, let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: Date()) else { return "" }
         return date.formatted(.dateTime.hour())
@@ -502,20 +531,27 @@ private struct Slot: Equatable {
     var start: Date
 }
 
-/// The slot under the pointer. Its own object, read only by `HoverHighlight`, so moving the pointer
-/// redraws the highlight and not the grid.
-@Observable
-private final class HoverSlot {
-    var slot: Slot?
+/// A meeting's place in the week: the day's column, the start and the end.
+private struct Span: Equatable {
+    var day: Int
+    var start: Date
+    var end: Date
 }
 
-private struct HoverHighlight: View {
-    let hover: HoverSlot
-    let frame: (Slot) -> CGRect
+/// The span under the pointer (the default duration) or being dragged. Its own object, read only by
+/// `SlotHighlightView`, so moving the pointer redraws the highlight and not the grid.
+@Observable
+private final class SlotHighlight {
+    var span: Span?
+}
+
+private struct SlotHighlightView: View {
+    let highlight: SlotHighlight
+    let frame: (Span) -> CGRect
 
     var body: some View {
-        if let slot = hover.slot {
-            let rect = frame(slot)
+        if let span = highlight.span {
+            let rect = frame(span)
             RoundedRectangle(cornerRadius: 4)
                 .fill(Theme.accent.opacity(0.15))
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Theme.accent, lineWidth: 1))
