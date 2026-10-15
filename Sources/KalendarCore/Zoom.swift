@@ -188,9 +188,11 @@ extension URL {
     /// Any other link is itself.
     public var zoomWebClient: URL {
         guard var parts = URLComponents(url: self, resolvingAgainstBaseURL: false),
-              parts.host?.lowercased().hasSuffix("zoom.us") == true,
+              let host = parts.host?.lowercased(), host == "zoom.us" || host.hasSuffix(".zoom.us"),
               parts.path.hasPrefix("/j/") else { return self }
-        parts.path = "/wc/" + parts.path.dropFirst(3) + "/join"
+        let id = parts.path.dropFirst(3).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !id.isEmpty else { return self }
+        parts.path = "/wc/\(id)/join"
         return parts.url ?? self
     }
 }
