@@ -79,3 +79,32 @@ What happened to each finding above, plus those from the #9 review:
 - **#16 Detail in place.** Opening another item reuses the open detail popover (saving the previous item first). Clicks in the panel defer the transient close until the click ends, whether AppKit asks on mouse-down or mouse-up, or a control consumes the mouse-up.
 - **#17 Pinned RSVP.** An invitation's Maybe / Decline / Accept and its write error sit in a footer below the scrolling body.
 - Verified each in the running app with real clicks; no RSVP was sent and no event was written while testing.
+
+## Meet With (branch `meet-with`)
+Google Calendar's "Meet with…": pick people, see their calendars over yours, click a free slot to create a meeting with them.
+Decisions (2026-10-14, from the user): a separate window; other people's event titles where their calendar is shared, busy blocks otherwise; a click opens the new-event form filled in.
+
+- [x] Core: `GoogleCalendarAPI.freeBusyRequest` and `FreeBusyResponse` (POST /freeBusy). The `calendar` scope already covers it.
+- [x] Core: `Availability` — loads one person's week: `events.list` on their email (titles) through each account, falling back to `freeBusy` (busy blocks), else "not available". Skips their declined and free events.
+- [x] Core: `Availability.lanes` — side-by-side layout of overlapping blocks within one person's column.
+- [x] Tests: free/busy request and parse, the events → free/busy → unavailable fallback with FakeGoogle, lanes.
+- [x] UI: `MeetWithWindowController` + `MeetWithView`: people chips and contact search (cache.allContacts + Contact.matching), week navigation, legend, a 24-hour week grid with one sub-column per person (me first), scrolled to 8 AM.
+- [x] UI: hover highlights the 30-minute slot; click opens `EventEditor` (new draft: that slot, default duration, me + the people as attendees, default calendar) in a popover anchored to the slot; Add Event inserts through `EventWriter`.
+- [x] Entry: ⚙ menu "Meet With…" ⇧⌘M; the status item's right-click menu too.
+- [x] SPEC: new section, §4.4 menu, §11 shortcut.
+- [x] Verify: tests, build, the window against real accounts (a colleague's titles and a free/busy-only person), slot click fills the form. Do not add an event with real invitees.
+
+### Review
+- Verified against the real accounts: mike@playful.software and kate@playful.software load with titles (their calendars are shared with darrin@playful.software); mikehar@hey.com gets "calendar not shared" and no column. Mike's week matches Google's Meet with view of the same week.
+- A click on Thursday 2:00 PM opened the form: 2:00–3:00 PM, darrin@playful.software, 10-minute default alert, me + Mike invited. No event was added.
+- Not seen: a person with busy times only (every shared colleague tried exposes titles).
+
+## Video conferencing on events (requested 2026-10-14)
+Decision (user): Zoom "whatever Google Calendar is doing" (a meeting per event in the Playful Software Zoom account), plus Google Meet.
+- [x] `video` row on the event form: None / Google Meet / Zoom.
+- [x] Google Meet through `conferenceData.createRequest`; the writer refetches after the write (Google changes the etag when it attaches the conference). Verified by `-selfTest` against Google: Meet link created, the edit after it saved.
+- [x] Zoom: public-client PKCE sign-in through a loopback redirect, `ZoomAccount` (Keychain refresh token, rotation, 401 retry), meeting creation, Settings › Accounts › Video conferencing. Unit-tested.
+- [x] Zoom app "Kalendar" registered in the Playful Software Zoom account (2026-10-14): General app, user-managed, development mode; Public Client OAuth on; redirect and allow list `http://127.0.0.1:47823/zoom`; scope `meeting:write:meeting`. Public client ID in `ZoomOAuth.clientID`. Verified: Settings › Connect… signed in through the browser; choosing Zoom on the form created meeting 880 8923 0655 ("Kalendar Zoom test", Oct 15 2:00 PM) and filled the location; choosing None removed it. No event was added.
+- [x] Setting Video conferencing › New events (None / Google Meet / Zoom). A new event's Zoom meeting is now created at Add Event, so abandoned or changed forms leave no meeting. Verified with default Zoom: the form opened on Zoom; an event added on "test" got meeting 896 8179 8485 in its location and notes and Kalendar's Join; the event was then deleted and "test" hidden again; the setting was removed afterwards.
+- [ ] The Zoom app is in development mode: only users in the Playful Software Zoom account can authorize it. Other users need it published (Production tab, Zoom review).
+- [ ] The privacy policy (massena.com/kalendar/privacy) covers Google only; Zoom sends event titles and times to Zoom and keeps a Zoom token in the Keychain.

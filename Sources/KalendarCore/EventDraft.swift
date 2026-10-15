@@ -22,6 +22,8 @@ public struct EventDraft: Equatable {
     /// The series rule; nil for a one-off event.
     public var recurrence: RecurrenceRule?
     public var attendees: [Attendee]
+    /// Asks Google to create a Meet conference for the event when it is written (§5.1).
+    public var addGoogleMeet = false
 
     public init(_ e: EventInstance, recurrence: RecurrenceRule?) {
         summary = e.summary == "(No title)" ? "" : e.summary
@@ -103,6 +105,7 @@ public struct EventDraft: Equatable {
             body["recurrence"] = recurrence.map { [$0.rrule(calendar: calendar, allDay: allDay)] } ?? []
         }
         if attendees != original.attendees { body["attendees"] = attendees.map(Self.attendee) }
+        if addGoogleMeet && !original.addGoogleMeet { body["conferenceData"] = Self.meetRequest() }
         return body.isEmpty ? nil : body
     }
 
@@ -122,7 +125,31 @@ public struct EventDraft: Equatable {
         if let colorId { body["colorId"] = colorId }
         if let recurrence { body["recurrence"] = [recurrence.rrule(calendar: calendar, allDay: allDay)] }
         if guests && !attendees.isEmpty { body["attendees"] = attendees.map(Self.attendee) }
+        if addGoogleMeet { body["conferenceData"] = Self.meetRequest() }
         return body
+    }
+
+    /// Google creates the Meet conference for a write carrying this and `conferenceDataVersion=1`.
+    /// The request id only has to be unique per request.
+    static func meetRequest() -> [String: Any] {
+        ["createRequest": ["requestId": UUID().uuidString, "conferenceSolutionKey": ["type": "hangoutsMeet"]]]
+    }
+
+    /// `query` for a write of `body`, with `conferenceDataVersion=1` when the body carries
+    /// `conferenceData`, which Google ignores without it.
+    public static func query(_ query: [String: String], for body: [String: Any]?) -> [String: String] {
+        body?["conferenceData"] == nil ? query : query.merging(["conferenceDataVersion": "1"]) { a, _ in a }
+    }
+
+    /// Invites `guests` (email, name), each once and never the organizer: the organizer is listed
+    /// with them, accepted, as Google does. No guests, no attendees.
+    public mutating func invite(_ guests: [(email: String, name: String?)]) {
+        var seen: Set<String> = [account.lowercased()]
+        let unique = guests.filter { seen.insert($0.email.lowercased()).inserted }
+        attendees = unique.isEmpty ? [] : [Attendee(email: account, displayName: nil, isSelf: true, organizer: true,
+                                                    optional: false, responseStatus: "accepted")]
+            + unique.map { Attendee(email: $0.email, displayName: $0.name, isSelf: false, organizer: false,
+                                    optional: false, responseStatus: "needsAction") }
     }
 
     /// Writing `date` clears `dateTime` and the reverse, so switching all-day on or off patches cleanly.

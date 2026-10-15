@@ -46,16 +46,92 @@ final class EventEditorModel {
         original = draft
         self.draft = draft
         writer.clearError()
+        video = Preferences.shared.newEventVideo   // §12
+        originalVideo = video
+        self.draft.addGoogleMeet = self.video == .googleMeet
+        original.addGoogleMeet = self.draft.addGoogleMeet
     }
 
     /// The input changed: fields the user hasn't edited by hand take the new parse (§5.2).
+    /// While Add Event waits for a Zoom meeting, the form keeps what was added.
     func follow(_ parsed: EventDraft) {
+        guard !creatingZoom else { return }
+        var parsed = parsed
+        // the default video is the baseline, so it isn't counted as a change by hand
+        parsed.addGoogleMeet = original.addGoogleMeet
         draft = draft.following(parsed, previousParse: original)
         original = parsed
     }
 
-    /// The new-item form's Add Event needs a title.
-    var canAdd: Bool { !draft.summary.trimmingCharacters(in: .whitespaces).isEmpty }
+    /// The new-item form's Add Event needs a title, and waits for a Zoom meeting being created.
+    var canAdd: Bool { !draft.summary.trimmingCharacters(in: .whitespaces).isEmpty && !creatingZoom }
+
+    // MARK: Video conferencing (§5.1)
+
+    typealias Video = Preferences.Video
+
+    private(set) var video: Video = .none
+    /// The video the new-item form opened with; choosing another one is an edit by hand (§8.3).
+    private var originalVideo: Video = .none
+    /// The Zoom join link this form added to the draft.
+    private(set) var zoomLink: String?
+    /// A Zoom meeting is being created.
+    private(set) var creatingZoom = false
+    private(set) var videoError: String?
+
+    /// Google creates a Meet conference when the event is written. A Zoom meeting is created in the
+    /// user's Zoom account: for a new event when it is added (`commit`), from its final title and
+    /// time, so an abandoned form leaves no meeting behind; for an existing event now. Its link goes
+    /// in the location (when empty) and the notes, where the Join button and other apps find it.
+    func setVideo(_ choice: Video) {
+        guard !creatingZoom else { return }
+        videoError = nil
+        video = choice
+        draft.addGoogleMeet = choice == .googleMeet
+        if choice != .zoom { removeZoomLink() }
+        if choice == .zoom && !isNew {
+            Task { if !(await attachZoom()) { video = .none } }
+        }
+    }
+
+    /// Add Event: hands the draft to `insert`, after creating the Zoom meeting when Zoom is chosen.
+    /// When that fails, the error shows under the video row and nothing is added.
+    func commit(_ insert: @escaping (EventDraft) -> Void) {
+        guard video == .zoom, zoomLink == nil else { return insert(draft) }
+        Task { if await attachZoom() { insert(draft) } }
+    }
+
+    /// Creates the Zoom meeting and puts its link in the draft; false when Zoom refused.
+    private func attachZoom() async -> Bool {
+        guard zoomLink == nil else { return true }
+        creatingZoom = true
+        defer { creatingZoom = false }
+        do {
+            let meeting = try await Zoom.account.createMeeting(
+                topic: draft.summary, start: draft.start, minutes: Int(draft.end.timeIntervalSince(draft.start) / 60),
+                timeZone: draft.timeZone)
+            zoomLink = meeting.joinURL
+            if draft.location.isEmpty { draft.location = meeting.joinURL }
+            let note = Self.zoomNote(meeting.joinURL)
+            draft.notes = draft.notes.isEmpty ? note : "\(note)\n\n\(draft.notes)"
+            return true
+        } catch {
+            videoError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// What a Zoom meeting adds to the notes, and what removing it takes out.
+    private static func zoomNote(_ link: String) -> String { "Join Zoom Meeting\n\(link)" }
+
+    private func removeZoomLink() {
+        guard let link = zoomLink else { return }
+        if draft.location == link { draft.location = "" }
+        for added in [Self.zoomNote(link) + "\n\n", Self.zoomNote(link)] {
+            draft.notes = draft.notes.replacingOccurrences(of: added, with: "")
+        }
+        zoomLink = nil
+    }
 
     private func loadSeries() async {
         guard let series = await writer.series(of: event) else { return }
@@ -73,7 +149,7 @@ final class EventEditorModel {
     /// write, so nothing is editable.
     var isReadOnlyCalendar: Bool { !agenda.isWritable(event) }
     var isRecurring: Bool { event.recurringEventId != nil }
-    var hasChanges: Bool { draft != original }
+    var hasChanges: Bool { draft != original || (isNew && video != originalVideo) }
 
     var writableCalendars: [CalendarInfo] {
         agenda.calendars.filter { c in

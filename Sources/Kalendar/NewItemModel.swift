@@ -92,18 +92,9 @@ final class NewItemModel {
         guard let calendar = calendar(for: parsed.calendarQuery) else { return }
         var draft = EventDraft(parsed: parsed, account: calendar.account, calendarId: calendar.id)
         if let chosenLocation { draft.location = chosenLocation }
-        // each guest once, and never the organizer again
-        var seen: Set<String> = [calendar.account.lowercased()]
-        let emails = (parsed.invitees + chosenInvitees.map(\.email)).filter { seen.insert($0.lowercased()).inserted }
-        if !emails.isEmpty {
-            // the organizer is listed with the guests, as Google does
-            draft.attendees = [Attendee(email: calendar.account, displayName: nil, isSelf: true, organizer: true,
-                                        optional: false, responseStatus: "accepted")]
-                + emails.map { email in
-                    Attendee(email: email, displayName: chosenInvitees.first { $0.email == email }?.name, isSelf: false,
-                             organizer: false, optional: false, responseStatus: "needsAction")
-                }
-        }
+        draft.invite((parsed.invitees + chosenInvitees.map(\.email)).map { email in
+            (email, chosenInvitees.first { $0.email == email }?.name)
+        })
         if let form { form.follow(draft) } else { form = EventEditorModel(newDraft: draft, agenda: agenda, writer: writer) }
 
         let previous = trigger
@@ -213,21 +204,28 @@ final class NewItemModel {
 
     // MARK: Commit
 
-    /// Adds the event (§5.4). Returns false when there is nothing to add.
-    func add() -> Bool {
+    /// Adds the item (§5.4) and then calls `added`; an event with Zoom chosen waits for its meeting
+    /// (`EventEditorModel.commit`), and isn't added when the form is cancelled meanwhile.
+    func add(then added: @escaping () -> Void) {
         if let taskForm, taskForm.canAdd {
             let t = taskForm.draft
             writer.insertTask(title: t.title.trimmingCharacters(in: .whitespaces), notes: t.notes, due: t.due,
                               account: t.account, listId: t.listId)
+            finish(added)
         } else if let form, form.canAdd {
-            writer.insert(form.draft)
-        } else {
-            return false
+            form.commit { [weak self] draft in
+                guard let self, self.form === form else { return }
+                writer.insert(draft)
+                finish(added)
+            }
         }
+    }
+
+    private func finish(_ added: () -> Void) {
         if Preferences.shared.playSounds { NSSound(named: "Pop")?.play() }
         reset()
         defaultDay = nil
-        return true
+        added()
     }
 
     /// Whether cancelling should ask first (§8.3): the form was edited by hand, not just typed into.

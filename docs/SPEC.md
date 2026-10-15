@@ -49,7 +49,7 @@ The behavior below was specified on 2026‑09‑21 from observation of an existi
 - Template‑style calendar glyph showing today's day number ("21"). Redraw at midnight and on `NSCalendarDayChanged`.
 - **Left‑click**: toggle popover.
 - **⌥‑click** [out of scope]: the reference app opens the full window; here, no‑op or open Settings.
-- Right‑click: small menu — Settings…, Check for Updates…, About, Quit. **[decision]**
+- Right‑click: small menu — Meet With… (§21), Settings…, Check for Updates…, About, Quit. **[decision]**
 - **Join item [decision]:** while an event would get the Join pill (§4.3: timed, video link, not declined, in progress or starting within 15 minutes), a second status item to the right of the glyph shows a video glyph and "Join <name>". The name is the event title without the user's own name: "Darrin / Kate" shows "Join Kate" for Darrin. The title is split on "/", "<>", "&", "|" and " x ", and the parts that start with the user's first name (from the account email or the user's attendee name) are dropped. With no part left, it is the whole title. Names longer than 20 characters are cut with "…". Clicking it opens the link and hides the item. It does not return for that event; it returns for the next event that qualifies. It updates each minute and after each sync.
 - Must coexist with menu bar managers (Bartender/Ice): use a standard `NSStatusItem`; anchor the popover to `statusItem.button`.
 
@@ -146,7 +146,7 @@ Behaviors:
   ─────
   Quit Completely
   ```
-  **[decision]** v1 menu: Go to Today ⌘T · Go to Date… ⇧⌘T · Delete Item ⌘⌫ · — · Refresh All ⇧⌘R · Settings… ⌘, · Check for Updates… (§20) · Launch at Login (checkable) · — · Quit ⌘Q. Detach / Keep in Front return in v2.
+  **[decision]** v1 menu: Go to Today ⌘T · Go to Date… ⇧⌘T · Delete Item ⌘⌫ · — · Meet With… ⇧⌘M (§21) · — · Refresh All ⇧⌘R · Settings… ⌘, · Check for Updates… (§20) · Launch at Login (checkable) · — · Quit ⌘Q. Detach / Keep in Front return in v2.
 
 ---
 
@@ -172,6 +172,12 @@ show as   Busy
 ```
 
 Clicking `˅` expands to the **full form**, which inserts: `time zone` (after ends), `repeat` + `repeat end` (after color), `travel time` (omit), `visibility`, then hairline‑separated sections: ☐ RSVP event link with a grey explainer (omit), **Add Invitees**, ☐ Google Meet with logo (omit v1), Add Attachment… (omit), **Add Notes** text area (`accent` caret when focused). Button becomes `˄`; the form scrolls within the popover, thin scrollbar at the right edge.
+
+**video** (row after `calendar`, on new events and on events without a call; hidden on invitations and read‑only calendars) **[decision]**: `None ˅` menu with **None**, **Google Meet**, and **Zoom** ("Connect Zoom…" until the user signs in to Zoom). The Zoom app is "Kalendar" in the Playful Software Zoom account, in development mode, so only that account's users can authorize it.
+- **Google Meet:** the write carries `conferenceData.createRequest` (`conferenceSolutionKey.type = hangoutsMeet`) with `conferenceDataVersion=1`. About a second after answering, Google updates the event once more and its etag changes, although the conference already reports success. After such a write lands, the writer fetches the event once a second, up to five times, until the etag changes, and caches that copy (`EventWriter.landed`); writes queued behind it wait, so an edit made right away sends the current etag.
+- **Default:** a new event starts with the Video conferencing › New events setting (§12): None, Google Meet, or Zoom (None while Zoom isn't connected). The default is not a change by hand, so it doesn't make cancelling ask (§8.3); choosing another option is. Settings notes when a Zoom default can't apply because Zoom isn't connected. While Add Event waits for a Zoom meeting, typing doesn't change the form, and a form cancelled or replaced meanwhile adds nothing (the meeting stays in the Zoom account).
+- **Zoom:** Kalendar creates a scheduled meeting in the user's Zoom account (`POST /v2/users/me/meetings`: the title, start, duration and time zone), shown as "Creating Zoom meeting…". For a new event this happens at Add Event, from the final title and time, so a form abandoned or changed leaves no stray meeting; Add waits for it, and when Zoom refuses, the error shows under the row and nothing is added. For an existing event it happens when Zoom is chosen. The join link becomes the location when that is empty, and "Join Zoom Meeting\n<link>" heads the notes, where the Join button (§4.3) and other calendar apps find it. Choosing None or Google Meet afterwards removes both; the Zoom meeting itself stays in the Zoom account. Google Calendar's own Zoom add‑on writes add‑on conference data, which the Calendar API cannot create.
+- **Zoom sign‑in:** Zoom's public‑client OAuth (authorization code with PKCE, no secret). Zoom's consent page opens in the default browser and redirects to `http://127.0.0.1:47823/zoom`, which Kalendar listens on only during sign‑in (5‑minute limit). The refresh token is kept in the Keychain under `zoom`; Zoom issues a new one on each refresh. Settings › Accounts › Video conferencing has Connect… / Disconnect.
 
 **Add Invitees**: clicking turns the row into a text field; typing (`bob`) drops a contact list over the rest of the form — avatar photo or initials, name, email; the same person appears once per email address, with a disambiguator in the name when needed ("Bob Day (gmail)"). First match highlighted with the selection color; Enter/click adds a chip and clears the field for the next invitee. Source: the Google People API for both accounts (§18.4) plus attendee addresses from events in the local cache. Saving writes the event's `attendees` array; new invitees are emailed by Google with `sendUpdates=all`.
 
@@ -411,6 +417,7 @@ Tasks are Google Tasks. Completing writes `status: "completed"`; uncompleting wr
 | ⌘, | Settings |
 | ⇧⌘T | Go to Date… |
 | ⇧⌘R | Refresh All (run an incremental sync for every calendar and task list now) |
+| ⇧⌘M | Meet With… (§21) |
 | ⌘Q | Quit |
 | ⌃⌘A | Keep popover in front (v2) |
 
@@ -421,7 +428,7 @@ Tasks are Google Tasks. Completing writes `status: "completed"`; uncompleting wr
 Tabs: **General**, **Accounts**, **Appearance**, **Events & Tasks**, **Calendars**.
 
 - General: Launch at login; Global shortcut recorder; Default calendar; Default task list; Default event duration (15/30/45/60/90/120 min); Start week on; Day starts at (**[decision]** the hour a new timed slot starts; "Day ends" is omitted because only the out-of-scope Day and Week views use it); Play UI sound; Go to today after adding items; Show alerts (on); Check for updates automatically (on, §20).
-- Accounts: one row per signed‑in Google account (email, "Sign Out"), and an "Add Account…" button (§8.5).
+- Accounts: one row per signed‑in Google account (email, "Sign Out"), and an "Add Account…" button (§8.5). Below, **Video conferencing**: **New events** (None / Google Meet / Zoom, default None) and **Zoom: Connect… / Disconnect** (§5.1).
 - Appearance: Menu bar icon shows (Icon only / Date / Next event title / Next event + countdown); Use color icon; Text size (Small/Normal/Large); Theme (System/Light/Dark). All four icon options are in v1.
 - Events & Tasks: List shows (Next 7 days / 14 / 30 / All days); Show when events end; Show declined events; Combine identical events; Dim items on previous days; Show tasks in list; Show completed tasks; Sort tasks by (Due Date / My Order).
 - Calendars: checklist of calendars grouped by account (visibility), and a checklist of Google Tasks lists grouped by account. **[decision]** Calendar visibility here and in the §4.4 menu reads and writes Google's `calendarList` `selected` flag (`calendarList.patch`), so it matches Google Calendar on the web. Task‑list visibility has no Google equivalent and is stored locally.
@@ -602,3 +609,21 @@ Kapture's implementation is the reference: `~/src/kapture/Sources/Kapture/Update
 - **Bundle ID:** `com.massena.kalendar`. Repo: `darrinm/kalendar`.
 - **Entitlements:** none. Kalendar does not need Kapture's `keychain-access-groups` entitlement or provisioning profile, so `bundle.sh` signs without an entitlements file.
 - Add Sparkle's MIT license to `THIRD-PARTY-NOTICES.md`.
+
+---
+
+## 21. Meet With **[decision]**
+
+Google Calendar's "Meet with…": pick people, see their calendars over the user's own, click a free slot to invite them.
+
+- **Opening:** ⚙ menu **Meet With… ⇧⌘M**, and the status item's right‑click menu. A separate, resizable window (1000×720 pt at first; the frame is remembered).
+- **People:** a "Meet with" field. Typing suggests contacts as the new‑item form does (§18.4, `Contact.matching`); ↑/↓ choose, Enter adds, Esc clears. Enter on a typed email address adds it as is. Each person is a removable chip in their color. The user's own accounts are not added.
+- **Week:** ‹ › and Today step by week; the week starts on the First day of week setting (§12). The grid shows 24 hours, 48 pt per hour, and opens scrolled to 8 AM. Today's header is in the accent, with a red line at the current time.
+- **Columns:** each day is split into one column per person, the user first (accent), then each person in the order added (purple, orange, green, pink, teal, gold). Overlapping events within a column sit side by side (`Availability.lanes`). Only timed events show.
+- **The user's events:** from the cache: selected calendars, not declined, not free, each identical event once (§4.3).
+- **Other people's events,** for the week (`Availability.load`), trying first the accounts in the person's email domain, then the others:
+  1. `events.list` on their email as the calendar id. Works when their calendar is shared with that account; blocks show titles. Their free events and events they declined are left out.
+  2. Otherwise `freeBusy` (POST `/freeBusy`, covered by the `calendar` scope). Blocks read "Busy", drawn outlined; the legend says "busy times only".
+  3. Otherwise no column; the legend says "calendar not shared".
+- **Blocks** show the title (two lines when tall enough) and the time range when 70 pt wide or more; the tooltip has both.
+- **Making the meeting:** the 30‑minute slot under the pointer is highlighted at the default duration's height. A click opens the new‑event form (§5.1, `EventEditor`) in a popover beside the slot: that start, the default duration, busy, the calendar's default alerts, on the Default calendar or the primary calendar of the account in the first person's domain, with the user as organizer and everyone chosen invited. Add Event inserts it (§5.4); the user's column updates at once.

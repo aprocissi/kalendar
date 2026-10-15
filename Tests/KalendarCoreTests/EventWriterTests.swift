@@ -21,7 +21,7 @@ final class EventWriterTests: XCTestCase {
                                     now: { [now] in now })
         cache = try CalendarCache()
         engine = SyncEngine(accounts: accounts, cache: cache, now: { [now] in now })
-        writer = EventWriter(accounts: accounts, cache: cache, engine: engine, now: { [now] in now })
+        writer = EventWriter(accounts: accounts, cache: cache, engine: engine, now: { [now] in now }, conferencePoll: 0)
         try cache.replaceCalendars([
             CalendarInfo(account: "me@example.com", id: "primary", summary: "Me", backgroundColor: "#000000",
                          accessRole: "owner", selected: true, primary: true),
@@ -362,6 +362,47 @@ final class EventWriterTests: XCTestCase {
         XCTAssertEqual(post.httpMethod, "POST")
         XCTAssertEqual(post.json?["summary"] as? String, "Coffee")
         XCTAssertEqual((post.json?["reminders"] as? [String: Any])?["useDefault"] as? Bool, true)
+    }
+
+    func testGoogleMeetIsRequestedWithConferenceDataVersion() async throws {
+        var draft = EventDraft(parsed: NLParser(now: now).parse("Sync tomorrow 3pm"), account: "me@example.com",
+                               calendarId: "primary")
+        google.handler = { _, _ in (200, self.serverEvent("g1", title: "Sync")) }
+        writer.insert(draft)
+        draft.addGoogleMeet = true
+        writer.insert(draft)
+        await writer.flush()
+        let (plain, meet) = (google.requests[0], google.requests[1])
+        XCTAssertNil(plain.json?["conferenceData"])
+        XCTAssertFalse(plain.url!.query!.contains("conferenceDataVersion"))
+        let create = try XCTUnwrap((meet.json?["conferenceData"] as? [String: Any])?["createRequest"] as? [String: Any])
+        XCTAssertEqual((create["conferenceSolutionKey"] as? [String: String])?["type"], "hangoutsMeet")
+        XCTAssertNotNil(create["requestId"] as? String)
+        XCTAssertTrue(meet.url!.query!.contains("conferenceDataVersion=1"))
+    }
+
+    /// Google changes the event's etag about a second after answering an insert that creates a
+    /// conference; the writer polls until it has.
+    func testEditAfterAddingMeetSendsTheEtagFetchedAfterTheInsert() async throws {
+        var draft = EventDraft(parsed: NLParser(now: now).parse("Sync tomorrow 3pm"), account: "me@example.com",
+                               calendarId: "primary")
+        draft.addGoogleMeet = true
+        // the first fetch still has the insert's etag; Google's update arrives before the second
+        google.handler = { r, _ in
+            let gets = self.google.requests.filter { $0.httpMethod == "GET" }.count
+            return (200, self.serverEvent("g1", title: "Sync", etag: r.httpMethod == "GET" && gets >= 2 ? "\"2\"" : "\"1\""))
+        }
+        writer.insert(draft)
+        await writer.flush()
+        XCTAssertEqual(google.requests.compactMap(\.httpMethod), ["POST", "GET", "GET"])
+        let cached = try XCTUnwrap(cache.event(account: "me@example.com", calendarId: "primary", id: "g1"))
+        XCTAssertEqual(cached.etag, "\"2\"")
+        var edited = EventDraft(cached, recurrence: nil)
+        edited.summary = "Sync (moved)"
+        writer.save(cached, original: EventDraft(cached, recurrence: nil), draft: edited, scope: .occurrence, series: nil)
+        await writer.flush()
+        XCTAssertEqual(google.requests.last?.value(forHTTPHeaderField: "If-Match"), "\"2\"")
+        XCTAssertNil(writer.error)
     }
 
     /// The live form follows new input except where the user changed a field by hand (§5.2).

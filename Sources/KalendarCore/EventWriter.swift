@@ -25,11 +25,16 @@ public final class EventWriter {
     @ObservationIgnored private var flushTask: Task<Void, Never>?
     @ObservationIgnored private var lastDeleteScope: Scope = .occurrence
 
-    public init(accounts: AccountStore, cache: CalendarCache, engine: SyncEngine, now: @escaping () -> Date = Date.init) {
+    /// How often the writer checks for Google's update after attaching a conference (`landed`).
+    private let conferencePoll: TimeInterval
+
+    public init(accounts: AccountStore, cache: CalendarCache, engine: SyncEngine, now: @escaping () -> Date = Date.init,
+                conferencePoll: TimeInterval = 1) {
         self.accounts = accounts
         self.cache = cache
         self.engine = engine
         self.now = now
+        self.conferencePoll = conferencePoll
     }
 
     public func clearError() { error = nil }
@@ -78,7 +83,8 @@ public final class EventWriter {
             if toSeries, let series, draft.recurrence != original.recurrence {
                 fields["recurrence"] = RecurrenceRule.replacing(draft.recurrence, in: series.recurrence, allDay: draft.allDay)
             }
-            enqueue(queued("PATCH", event, id: target.id, query: ["sendUpdates": Self.sendUpdates(event)], body: fields,
+            let query = EventDraft.query(["sendUpdates": Self.sendUpdates(event)], for: fields)
+            enqueue(queued("PATCH", event, id: target.id, query: query, body: fields,
                            ifMatch: toSeries ? series?.etag : event.etag, refreshSeries: target.series,
                            summary: draft.summary))
         }
@@ -119,7 +125,8 @@ public final class EventWriter {
         }
         var insert = PendingWrite(
             account: draft.account, calendarId: draft.calendarId, eventId: target.id, method: "POST",
-            path: GoogleCalendarAPI.eventPath(calendarId: draft.calendarId), query: ["sendUpdates": "none"],
+            path: GoogleCalendarAPI.eventPath(calendarId: draft.calendarId),
+            query: EventDraft.query(["sendUpdates": "none"], for: body),
             body: body, summary: draft.summary, createdAt: now())
         insert.replaces = event.id
         enqueue(insert)
@@ -169,11 +176,12 @@ public final class EventWriter {
     /// copy replaces when the insert lands. Invitees are emailed (`sendUpdates=all`, §5.1).
     public func insert(_ draft: EventDraft) {
         let placeholder = Self.placeholderId()
+        let body = draft.insertBody()
         var write = PendingWrite(
             account: draft.account, calendarId: draft.calendarId, eventId: placeholder, method: "POST",
             path: GoogleCalendarAPI.eventPath(calendarId: draft.calendarId),
-            query: ["sendUpdates": draft.attendees.count > 1 ? "all" : "none"],
-            body: draft.insertBody(), summary: draft.summary, createdAt: now())
+            query: EventDraft.query(["sendUpdates": draft.attendees.count > 1 ? "all" : "none"], for: body),
+            body: body, summary: draft.summary, createdAt: now())
         write.replaces = placeholder
         enqueue(write)
         try? cache.upsert([EventInstance(placeholder: placeholder, draft: draft)])
@@ -307,7 +315,19 @@ public final class EventWriter {
     private func landed(_ write: PendingWrite, data: Data) async {
         if write.isTask { return landedTask(write, data: data) }
         let calendarId = write.query["destination"] ?? write.calendarId
-        let g = write.method == "DELETE" ? nil : try? JSONDecoder().decode(GoogleCalendarAPI.GoogleEvent.self, from: data)
+        var g = write.method == "DELETE" ? nil : try? JSONDecoder().decode(GoogleCalendarAPI.GoogleEvent.self, from: data)
+        // About a second after a write that creates a conference, Google updates the event again and
+        // its etag changes, though the conference already reports success. The writer waits for that
+        // update, up to five checks, so the next edit sends the current etag; writes behind it wait.
+        if write.query["conferenceDataVersion"] != nil, let id = g?.id, let answered = g?.etag {
+            for _ in 0..<5 {
+                try? await Task.sleep(nanoseconds: UInt64(conferencePoll * 1_000_000_000))
+                guard let fresh = try? await accounts.calendarAPI(GoogleCalendarAPI.GoogleEvent.self, for: write.account,
+                    GoogleCalendarAPI.getEventRequest(calendarId: calendarId, eventId: id)) else { break }
+                g = fresh
+                if fresh.etag != answered { break }
+            }
+        }
         // writes queued behind this one were made against the version it replaced
         if let etag = g?.etag { try? cache.updateQueuedIfMatch(eventId: write.eventId, to: etag) }
         if write.path.hasSuffix("/move") {
