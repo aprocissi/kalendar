@@ -131,11 +131,6 @@ final class Preferences {
         hiddenTaskLists = Set(value("hiddenTaskLists", [String]()))
     }
 
-    /// Opens a meeting link for every Join (§4.3): a Zoom one in the browser with `zoomInBrowser`.
-    func join(_ url: URL) {
-        NSWorkspace.shared.open(zoomInBrowser ? url.zoomWebClient : url)
-    }
-
     private func save(_ value: Any?, _ key: String) {
         defaults.set(value, forKey: key)
         onChange(key)

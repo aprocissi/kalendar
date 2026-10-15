@@ -117,21 +117,28 @@ final class ZoomTests: XCTestCase {
     }
 
     func testMeetingLinksOpenInTheWebClient() {
-        func web(_ link: String) -> String { URL(string: link)!.zoomWebClient.absoluteString }
+        func web(_ link: String) -> String {
+            ConferenceDetector.joinURL(for: URL(string: link)!, inBrowser: true).absoluteString
+        }
         XCTAssertEqual(web("https://us02web.zoom.us/j/123?pwd=abc"), "https://us02web.zoom.us/wc/123/join?pwd=abc")
         XCTAssertEqual(web("https://zoom.us/j/123"), "https://zoom.us/wc/123/join")
         XCTAssertEqual(web("https://zoom.us/j/123#success"), "https://zoom.us/wc/123/join#success")
-        // personal rooms, other services, and links that merely contain /j/ stay as they are
-        XCTAssertEqual(web("https://zoom.us/my/someone"), "https://zoom.us/my/someone")
-        XCTAssertEqual(web("https://meet.google.com/abc-defg-hij"), "https://meet.google.com/abc-defg-hij")
-        XCTAssertEqual(web("https://example.com/j/123"), "https://example.com/j/123")
-        XCTAssertEqual(web("https://notzoom.us/j/123"), "https://notzoom.us/j/123")
-        // a trailing slash is dropped; a link with no meeting ID stays as it is
+        // a trailing slash is dropped
         XCTAssertEqual(web("https://zoom.us/j/123/?pwd=abc"), "https://zoom.us/wc/123/join?pwd=abc")
-        XCTAssertEqual(web("https://zoom.us/j/"), "https://zoom.us/j/")
-        // a path with more than a meeting ID is not a meeting link Zoom's web client takes
-        XCTAssertEqual(web("https://zoom.us/j/123/extra"), "https://zoom.us/j/123/extra")
         // ConferenceDetector matches case-insensitively
         XCTAssertEqual(web("https://Zoom.US/J/123"), "https://Zoom.US/wc/123/join")
+        for unchanged in [
+            "https://zoom.us/my/someone",           // a personal room
+            "https://meet.google.com/abc-defg-hij", // another service
+            "https://example.com/j/123",            // /j/ on another host
+            "https://notzoom.us/j/123",             // a host that merely ends in zoom.us
+            "https://zoom.us/j/",                   // no meeting ID
+            "https://zoom.us/j/123/extra",          // more than a meeting ID
+        ] {
+            XCTAssertEqual(web(unchanged), unchanged, unchanged)
+        }
+        // with the setting off, every link opens as it is
+        let link = URL(string: "https://zoom.us/j/123")!
+        XCTAssertEqual(ConferenceDetector.joinURL(for: link, inBrowser: false), link)
     }
 }

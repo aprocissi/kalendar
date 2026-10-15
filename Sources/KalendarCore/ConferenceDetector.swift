@@ -56,10 +56,22 @@ public enum ConferenceDetector {
         return "Video"
     }
 
+    /// The link Join opens (§4.3). With `inBrowser`, a Zoom meeting link zoom.us/j/123?pwd=… opens
+    /// Zoom's web client, zoom.us/wc/123/join?pwd=…. Any other link is returned unchanged.
+    public static func joinURL(for url: URL, inBrowser: Bool) -> URL {
+        guard inBrowser, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              isZoomHost(parts.host?.lowercased() ?? "") else { return url }
+        // exactly /j/<id>, with or without a trailing slash
+        let segments = parts.path.split(separator: "/")
+        guard segments.count == 2, segments[0].lowercased() == "j" else { return url }
+        parts.path = "/wc/\(segments[1])/join"
+        return parts.url ?? url
+    }
+
     /// zoom.us or a subdomain of it (us02web.zoom.us), not a host that merely ends in "zoom.us".
-    public static func isZoomHost(_ host: String?) -> Bool {
-        guard let host = host?.lowercased() else { return false }
-        return host == "zoom.us" || host.hasSuffix(".zoom.us")
+    /// `host` is lowercased.
+    private static func isZoomHost(_ host: String) -> Bool {
+        host == "zoom.us" || host.hasSuffix(".zoom.us")
     }
 
     /// How long before its start a meeting is offered for Join.

@@ -88,7 +88,7 @@ struct EventEditor: View {
                 .foregroundStyle(Theme.muted)
                 .disabled(readOnly)
             if !model.isNew, let link = model.event.conferenceURL, let url = URL(string: link) {
-                Button("Join \(ConferenceDetector.serviceName(for: link)) Meeting") { Preferences.shared.join(url) }
+                Button("Join \(ConferenceDetector.serviceName(for: link)) Meeting") { Meeting.join(url) }
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 4)
             }
