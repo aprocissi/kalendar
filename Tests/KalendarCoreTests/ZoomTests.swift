@@ -129,5 +129,9 @@ final class ZoomTests: XCTestCase {
         // a trailing slash is dropped; a link with no meeting ID stays as it is
         XCTAssertEqual(web("https://zoom.us/j/123/?pwd=abc"), "https://zoom.us/wc/123/join?pwd=abc")
         XCTAssertEqual(web("https://zoom.us/j/"), "https://zoom.us/j/")
+        // a path with more than a meeting ID is not a meeting link Zoom's web client takes
+        XCTAssertEqual(web("https://zoom.us/j/123/extra"), "https://zoom.us/j/123/extra")
+        // ConferenceDetector matches case-insensitively
+        XCTAssertEqual(web("https://Zoom.US/J/123"), "https://Zoom.US/wc/123/join")
     }
 }

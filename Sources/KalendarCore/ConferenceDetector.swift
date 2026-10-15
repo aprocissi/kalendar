@@ -48,12 +48,18 @@ public enum ConferenceDetector {
     /// "Zoom", "Google Meet", … for "Join Zoom Meeting" (§7.1).
     public static func serviceName(for url: String) -> String {
         let host = URL(string: url)?.host?.lowercased() ?? ""
-        if host.hasSuffix("zoom.us") { return "Zoom" }
+        if isZoomHost(host) { return "Zoom" }
         if host == "meet.google.com" { return "Google Meet" }
         if host.contains("teams.") { return "Teams" }
         if host.hasSuffix("webex.com") { return "Webex" }
         if host == "facetime.apple.com" { return "FaceTime" }
         return "Video"
+    }
+
+    /// zoom.us or a subdomain of it (us02web.zoom.us), not a host that merely ends in "zoom.us".
+    public static func isZoomHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == "zoom.us" || host.hasSuffix(".zoom.us")
     }
 
     /// How long before its start a meeting is offered for Join.

@@ -185,14 +185,14 @@ public final class ZoomAccount {
 
 extension URL {
     /// The browser client for a Zoom meeting link: zoom.us/j/123?pwd=… is zoom.us/wc/123/join?pwd=….
-    /// Any other link is itself.
+    /// Any other link is returned unchanged.
     public var zoomWebClient: URL {
         guard var parts = URLComponents(url: self, resolvingAgainstBaseURL: false),
-              let host = parts.host?.lowercased(), host == "zoom.us" || host.hasSuffix(".zoom.us"),
-              parts.path.hasPrefix("/j/") else { return self }
-        let id = parts.path.dropFirst(3).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !id.isEmpty else { return self }
-        parts.path = "/wc/\(id)/join"
+              ConferenceDetector.isZoomHost(parts.host) else { return self }
+        // exactly /j/<id>, with or without a trailing slash
+        let segments = parts.path.split(separator: "/")
+        guard segments.count == 2, segments[0].lowercased() == "j" else { return self }
+        parts.path = "/wc/\(segments[1])/join"
         return parts.url ?? self
     }
 }
